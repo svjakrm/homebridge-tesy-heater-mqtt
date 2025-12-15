@@ -112,6 +112,7 @@ class TesyHeaterPlatform {
             mac: mac,
             token: deviceData.token,
             model: deviceData.model || 'cn05uv',
+            firmware_version: deviceData.firmware_version,
             name: deviceName,
             state: state
           });
@@ -222,7 +223,8 @@ class TesyHeaterPlatform {
     informationService
       .setCharacteristic(Characteristic.Manufacturer, 'Tesy')
       .setCharacteristic(Characteristic.Model, deviceInfo.model || 'Convector')
-      .setCharacteristic(Characteristic.SerialNumber, deviceInfo.id);
+      .setCharacteristic(Characteristic.SerialNumber, `${deviceInfo.id} (${deviceInfo.mac})`)
+      .setCharacteristic(Characteristic.FirmwareRevision, deviceInfo.firmware_version || '0.0.0');
 
     // HeaterCooler Service
     let service = accessory.getService(Service.HeaterCooler);

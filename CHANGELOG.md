@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Implemented `_httpsGet()` helper method for API requests
 - Updated `discoverDevices()` and `fetchDeviceStatus()` to use native HTTPS
+- **Enhanced Accessory Information display**
+  - Serial Number now shows Device ID and MAC address (e.g., "216884 (1C:9D:C2:36:9D:84)")
+  - Firmware Revision now displays actual device firmware version (e.g., "4.79")
+  - Improves device identification in Homebridge UI and HomeKit
 
 ## [1.0.2] - 2025-12-15
 
