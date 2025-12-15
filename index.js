@@ -139,19 +139,35 @@ class TesyHeaterPlatform {
     if (accessory) {
       this.log.info("Restoring existing accessory:", deviceInfo.name);
 
-      // Update name if changed
+      // Always update name to ensure HomeKit has the latest value
       if (accessory.displayName !== deviceInfo.name) {
         this.log.info("Updating accessory name from '%s' to '%s'", accessory.displayName, deviceInfo.name);
-        accessory.displayName = deviceInfo.name;
-
-        // Update the service name too
-        const service = accessory.getService(Service.HeaterCooler);
-        if (service) {
-          service.setCharacteristic(Characteristic.Name, deviceInfo.name);
-        }
       }
 
+      // Update displayName
+      accessory.displayName = deviceInfo.name;
+
+      // Update context
       accessory.context.deviceInfo = deviceInfo;
+
+      // Update AccessoryInformation service name
+      const infoService = accessory.getService(Service.AccessoryInformation);
+      if (infoService) {
+        infoService.setCharacteristic(Characteristic.Name, deviceInfo.name);
+      }
+
+      // Update HeaterCooler service name
+      const service = accessory.getService(Service.HeaterCooler);
+      if (service) {
+        service.setCharacteristic(Characteristic.Name, deviceInfo.name);
+        service.displayName = deviceInfo.name;
+      }
+
+      // Also update the internal HAP accessory displayName
+      if (accessory._associatedHAPAccessory) {
+        accessory._associatedHAPAccessory.displayName = deviceInfo.name;
+      }
+
       this.api.updatePlatformAccessories([accessory]);
     } else {
       this.log.info("Adding new accessory:", deviceInfo.name);

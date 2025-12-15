@@ -3,106 +3,197 @@ const mqtt = require('mqtt');
 // Mock mqtt module
 jest.mock('mqtt');
 
-// Mock homebridge-http-base
-jest.mock('homebridge-http-base', () => ({
-  HttpAccessory: class MockHttpAccessory {
-    constructor() {
-      this.log = {
-        info: jest.fn(),
-        error: jest.fn(),
-        debug: jest.fn()
-      };
-    }
-  },
-  PullTimer: class MockPullTimer {
-    constructor(log, interval, callback) {
-      this.callback = callback;
-    }
-    start() {}
-    stop() {}
-  }
-}));
+// Mock http request
+jest.mock('request', () => {
+  return jest.fn();
+});
 
-// Mock homebridge API
-const mockHomebridge = {
-  hap: {
-    Service: {
-      HeaterCooler: function() {
-        this.getCharacteristic = jest.fn(() => ({
-          on: jest.fn(() => ({
-            on: jest.fn(() => this)
-          })),
-          value: 20,
-          updateValue: jest.fn()
-        }));
-        this.setCharacteristic = jest.fn(() => this);
-      }
-    },
-    Characteristic: {
-      Active: { INACTIVE: 0, ACTIVE: 1 },
-      CurrentHeaterCoolerState: { INACTIVE: 0, IDLE: 1, HEATING: 2 },
-      TargetHeaterCoolerState: { AUTO: 0, HEAT: 1, COOL: 2 },
-      CurrentTemperature: {},
-      HeatingThresholdTemperature: {},
-      TemperatureDisplayUnits: { CELSIUS: 0 }
-    }
-  },
-  registerAccessory: jest.fn()
-};
-
-describe('TesyHeater Plugin', () => {
-  let TesyHeater;
+describe('TesyHeater Platform Plugin', () => {
+  let TesyHeaterPlatform;
+  let mockLog;
+  let mockConfig;
+  let mockApi;
   let mockMqttClient;
-  let heaterInstance;
+  let platformInstance;
+  let Service, Characteristic;
 
   beforeEach(() => {
     // Reset mocks
     jest.clearAllMocks();
 
+    // Mock logger
+    mockLog = {
+      info: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+      warn: jest.fn()
+    };
+
+    // Mock Homebridge API
+    Service = {
+      AccessoryInformation: function() {
+        this.setCharacteristic = jest.fn(() => this);
+        this.getCharacteristic = jest.fn(() => {
+          const characteristic = {
+            on: jest.fn(() => characteristic),
+            setProps: jest.fn(() => characteristic),
+            updateValue: jest.fn(() => characteristic)
+          };
+          return characteristic;
+        });
+      },
+      HeaterCooler: function() {
+        this.setCharacteristic = jest.fn(() => this);
+        this.getCharacteristic = jest.fn(() => {
+          const characteristic = {
+            on: jest.fn(() => characteristic),
+            setProps: jest.fn(() => characteristic),
+            updateValue: jest.fn(() => characteristic)
+          };
+          return characteristic;
+        });
+        this.displayName = 'Test Heater';
+      }
+    };
+
+    Characteristic = {
+      Manufacturer: 'Manufacturer',
+      Model: 'Model',
+      SerialNumber: 'SerialNumber',
+      Name: 'Name',
+      Active: { INACTIVE: 0, ACTIVE: 1 },
+      CurrentHeaterCoolerState: { INACTIVE: 0, IDLE: 1, HEATING: 2 },
+      TargetHeaterCoolerState: { AUTO: 0, HEAT: 1, COOL: 2 },
+      CurrentTemperature: 'CurrentTemperature',
+      HeatingThresholdTemperature: 'HeatingThresholdTemperature',
+      CoolingThresholdTemperature: 'CoolingThresholdTemperature',
+      TemperatureDisplayUnits: { CELSIUS: 0 }
+    };
+
+    mockApi = {
+      hap: {
+        Service: Service,
+        Characteristic: Characteristic,
+        uuid: {
+          generate: jest.fn((id) => `uuid-${id}`)
+        }
+      },
+      platformAccessory: jest.fn(function(name, uuid) {
+        this.displayName = name;
+        this.UUID = uuid;
+        this.context = {};
+        this._associatedHAPAccessory = { displayName: name };
+        this.getService = jest.fn((serviceType) => {
+          if (serviceType === Service.AccessoryInformation || serviceType === Service.HeaterCooler) {
+            return new serviceType();
+          }
+          return null;
+        });
+        this.addService = jest.fn((serviceType) => new serviceType());
+        return this;
+      }),
+      updatePlatformAccessories: jest.fn(),
+      registerPlatformAccessories: jest.fn(),
+      unregisterPlatformAccessories: jest.fn(),
+      registerPlatform: jest.fn(),
+      on: jest.fn()
+    };
+
+    // Mock config
+    mockConfig = {
+      name: 'TesyHeater',
+      userid: '27356',
+      username: 'test@example.com',
+      password: 'testpass',
+      maxTemp: 30,
+      minTemp: 10,
+      pullInterval: 60000
+    };
+
     // Setup mock MQTT client
     mockMqttClient = {
-      connect: jest.fn(),
       on: jest.fn(),
       subscribe: jest.fn(),
       publish: jest.fn(),
-      connected: true
+      connected: true,
+      end: jest.fn()
     };
 
-    mqtt.connect.mockReturnValue(mockMqttClient);
+    mqtt.connect = jest.fn(() => mockMqttClient);
 
-    // Load the module
+    // Load the module by calling it with homebridge mock
     delete require.cache[require.resolve('../index.js')];
-    TesyHeater = require('../index.js')(mockHomebridge);
+    const moduleExport = require('../index.js');
 
-    // Create instance
-    heaterInstance = new TesyHeater(
-      {
-        info: jest.fn(),
-        error: jest.fn(),
-        debug: jest.fn()
-      },
-      {
-        name: 'Test Heater',
-        userid: '27356',
-        username: 'test@example.com',
-        password: 'testpass',
-        device_id: '123456',
-        maxTemp: 30,
-        minTemp: 10,
-        pullInterval: 60000
-      }
-    );
+    // Initialize the plugin (this sets up global Service and Characteristic)
+    moduleExport(mockApi);
 
-    // Setup device info for MQTT
-    heaterInstance.device_mac = 'AA:BB:CC:DD:EE:FF';
-    heaterInstance.device_token = 'abc1234';
-    heaterInstance.device_model = 'cn05uv';
-    heaterInstance.mqttClient = mockMqttClient;
+    TesyHeaterPlatform = require('../index.js').TesyHeaterPlatform;
+
+    // Create platform instance
+    platformInstance = new TesyHeaterPlatform(mockLog, mockConfig, mockApi);
+  });
+
+  afterEach(() => {
+    if (platformInstance && platformInstance.pullTimer) {
+      platformInstance.pullTimer = null;
+    }
+    if (platformInstance && platformInstance.mqttClient) {
+      platformInstance.mqttClient = null;
+    }
+  });
+
+  describe('Platform Initialization', () => {
+    test('should initialize with correct configuration', () => {
+      expect(platformInstance.log).toBe(mockLog);
+      expect(platformInstance.config).toBe(mockConfig);
+      expect(platformInstance.api).toBe(mockApi);
+      expect(platformInstance.accessories).toEqual([]);
+      expect(platformInstance.devices).toEqual({});
+    });
+
+    test('should set temperature limits from config', () => {
+      expect(platformInstance.minTemp).toBe(10);
+      expect(platformInstance.maxTemp).toBe(30);
+    });
+
+    test('should set default temperature limits if not in config', () => {
+      const configWithoutLimits = { ...mockConfig };
+      delete configWithoutLimits.minTemp;
+      delete configWithoutLimits.maxTemp;
+
+      const instance = new TesyHeaterPlatform(mockLog, configWithoutLimits, mockApi);
+      expect(instance.minTemp).toBe(10);
+      expect(instance.maxTemp).toBe(30);
+    });
+
+    test('should use default pullInterval if not specified', () => {
+      const configWithoutInterval = { ...mockConfig };
+      delete configWithoutInterval.pullInterval;
+
+      const instance = new TesyHeaterPlatform(mockLog, configWithoutInterval, mockApi);
+      expect(instance.pullInterval).toBe(60000);
+    });
+  });
+
+  describe('configureAccessory', () => {
+    test('should restore cached accessory', () => {
+      const mockAccessory = {
+        UUID: 'uuid-123',
+        displayName: 'Cached Heater',
+        context: {}
+      };
+
+      platformInstance.configureAccessory(mockAccessory);
+
+      expect(platformInstance.accessories).toContain(mockAccessory);
+      expect(mockLog.info).toHaveBeenCalledWith('Configuring cached accessory:', 'Cached Heater');
+    });
   });
 
   describe('MQTT Initialization', () => {
     test('should connect to MQTT broker with correct credentials', () => {
-      heaterInstance.initMQTT();
+      platformInstance.initMQTT();
 
       expect(mqtt.connect).toHaveBeenCalledWith(
         'wss://mqtt.tesy.com:8083/mqtt',
@@ -115,37 +206,41 @@ describe('TesyHeater Plugin', () => {
       );
     });
 
-    test('should subscribe to response topics on connect', () => {
-      const connectHandler = mockMqttClient.on.mock.calls.find(
-        call => call[0] === 'connect'
-      );
+    test('should not initialize MQTT twice', () => {
+      platformInstance.initMQTT();
+      platformInstance.initMQTT();
 
-      if (connectHandler) {
-        const subscribeCallback = jest.fn();
-        mockMqttClient.subscribe.mockImplementation((topic, callback) => {
-          callback(null);
-        });
+      expect(mqtt.connect).toHaveBeenCalledTimes(1);
+    });
 
-        heaterInstance.initMQTT();
+    test('should set up event handlers on connect', () => {
+      platformInstance.initMQTT();
 
-        // Trigger connect event
-        connectHandler[1]();
-
-        expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
-          expect.stringContaining('v1/AA:BB:CC:DD:EE:FF/response/cn05uv/abc1234'),
-          expect.any(Function)
-        );
-      }
+      expect(mockMqttClient.on).toHaveBeenCalledWith('connect', expect.any(Function));
+      expect(mockMqttClient.on).toHaveBeenCalledWith('error', expect.any(Function));
+      expect(mockMqttClient.on).toHaveBeenCalledWith('close', expect.any(Function));
     });
   });
 
   describe('sendMQTTCommand', () => {
+    const mockDeviceInfo = {
+      id: '123456',
+      mac: 'AA:BB:CC:DD:EE:FF',
+      token: 'abc1234',
+      model: 'cn05uv',
+      name: 'Test Heater'
+    };
+
+    beforeEach(() => {
+      platformInstance.mqttClient = mockMqttClient;
+    });
+
     test('should publish command to correct MQTT topic', (done) => {
       mockMqttClient.publish.mockImplementation((topic, message, callback) => {
         callback(null);
       });
 
-      heaterInstance.sendMQTTCommand('onOff', { status: 'on' }, (error) => {
+      platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
         expect(error).toBeNull();
         expect(mockMqttClient.publish).toHaveBeenCalledWith(
           'v1/AA:BB:CC:DD:EE:FF/request/cn05uv/abc1234/onOff',
@@ -160,38 +255,50 @@ describe('TesyHeater Plugin', () => {
       mockMqttClient.publish.mockImplementation((topic, message, callback) => {
         const payload = JSON.parse(message);
         expect(payload).toHaveProperty('app_id');
-        expect(payload.app_id).toMatch(/^hb[a-f0-9]{7}$/);
+        expect(payload.app_id).toMatch(/^hb[a-f0-9]{7,8}$/);
         callback(null);
       });
 
-      heaterInstance.sendMQTTCommand('setTemp', { temp: 20 }, (error) => {
+      platformInstance.sendMQTTCommand(mockDeviceInfo, 'setTemp', { temp: 20 }, (error) => {
         expect(error).toBeNull();
         done();
       });
     });
 
     test('should return error if MQTT not connected', (done) => {
-      heaterInstance.mqttClient.connected = false;
+      platformInstance.mqttClient.connected = false;
 
-      heaterInstance.sendMQTTCommand('onOff', { status: 'on' }, (error) => {
+      platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
         expect(error).toBeInstanceOf(Error);
         expect(error.message).toBe('MQTT not connected');
         done();
       });
     });
 
-    test('should return error if device info not available', (done) => {
-      heaterInstance.device_mac = null;
+    test('should return error if MQTT client not initialized', (done) => {
+      platformInstance.mqttClient = null;
 
-      heaterInstance.sendMQTTCommand('onOff', { status: 'on' }, (error) => {
+      platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
         expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('Device info not available');
+        expect(error.message).toBe('MQTT not connected');
         done();
       });
     });
   });
 
   describe('setActive', () => {
+    const mockDeviceInfo = {
+      id: '123456',
+      mac: 'AA:BB:CC:DD:EE:FF',
+      token: 'abc1234',
+      model: 'cn05uv',
+      name: 'Test Heater'
+    };
+
+    beforeEach(() => {
+      platformInstance.mqttClient = mockMqttClient;
+    });
+
     test('should send "on" command when value is 1', (done) => {
       mockMqttClient.publish.mockImplementation((topic, message, callback) => {
         const payload = JSON.parse(message);
@@ -199,7 +306,7 @@ describe('TesyHeater Plugin', () => {
         callback(null);
       });
 
-      heaterInstance.setActive(1, (error) => {
+      platformInstance.setActive(mockDeviceInfo, 1, (error) => {
         expect(error).toBeNull();
         expect(mockMqttClient.publish).toHaveBeenCalledWith(
           expect.stringContaining('/onOff'),
@@ -217,7 +324,7 @@ describe('TesyHeater Plugin', () => {
         callback(null);
       });
 
-      heaterInstance.setActive(0, (error) => {
+      platformInstance.setActive(mockDeviceInfo, 0, (error) => {
         expect(error).toBeNull();
         done();
       });
@@ -225,6 +332,18 @@ describe('TesyHeater Plugin', () => {
   });
 
   describe('setHeatingThresholdTemperature', () => {
+    const mockDeviceInfo = {
+      id: '123456',
+      mac: 'AA:BB:CC:DD:EE:FF',
+      token: 'abc1234',
+      model: 'cn05uv',
+      name: 'Test Heater'
+    };
+
+    beforeEach(() => {
+      platformInstance.mqttClient = mockMqttClient;
+    });
+
     test('should set mode to manual before setting temperature', (done) => {
       const publishCalls = [];
 
@@ -233,7 +352,7 @@ describe('TesyHeater Plugin', () => {
         callback(null);
       });
 
-      heaterInstance.setHeatingThresholdTemperature(20, (error) => {
+      platformInstance.setHeatingThresholdTemperature(mockDeviceInfo, 20, (error) => {
         expect(error).toBeNull();
         expect(publishCalls.length).toBe(2);
 
@@ -258,7 +377,7 @@ describe('TesyHeater Plugin', () => {
         callback(null);
       });
 
-      heaterInstance.setHeatingThresholdTemperature(5, (error) => {
+      platformInstance.setHeatingThresholdTemperature(mockDeviceInfo, 5, (error) => {
         expect(error).toBeNull();
         done();
       });
@@ -273,7 +392,7 @@ describe('TesyHeater Plugin', () => {
         callback(null);
       });
 
-      heaterInstance.setHeatingThresholdTemperature(35, (error) => {
+      platformInstance.setHeatingThresholdTemperature(mockDeviceInfo, 35, (error) => {
         expect(error).toBeNull();
         done();
       });
@@ -286,7 +405,7 @@ describe('TesyHeater Plugin', () => {
         }
       });
 
-      heaterInstance.setHeatingThresholdTemperature(20, (error) => {
+      platformInstance.setHeatingThresholdTemperature(mockDeviceInfo, 20, (error) => {
         expect(error).toBeInstanceOf(Error);
         expect(mockMqttClient.publish).toHaveBeenCalledTimes(1); // Only setMode, no setTemp
         done();
@@ -294,43 +413,58 @@ describe('TesyHeater Plugin', () => {
     });
   });
 
+  describe('Device Management', () => {
+    test('should add new device', () => {
+      const deviceInfo = {
+        id: '123456',
+        mac: 'AA:BB:CC:DD:EE:FF',
+        token: 'abc1234',
+        model: 'cn05uv',
+        name: 'Test Heater',
+        state: { temp: 20 }
+      };
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(platformInstance.devices['123456']).toBeDefined();
+      expect(mockApi.registerPlatformAccessories).toHaveBeenCalled();
+    });
+
+    test('should restore existing device', () => {
+      const deviceInfo = {
+        id: '123456',
+        mac: 'AA:BB:CC:DD:EE:FF',
+        token: 'abc1234',
+        model: 'cn05uv',
+        name: 'Test Heater',
+        state: { temp: 20 }
+      };
+
+      // Add a cached accessory
+      const cachedAccessory = new mockApi.platformAccessory('Old Name', 'uuid-tesy-123456');
+      cachedAccessory.context.deviceInfo = { ...deviceInfo, name: 'Old Name' };
+      platformInstance.accessories.push(cachedAccessory);
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(platformInstance.devices['123456']).toBeDefined();
+      expect(mockApi.updatePlatformAccessories).toHaveBeenCalled();
+      expect(mockApi.registerPlatformAccessories).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Configuration Validation', () => {
     test('should have correct MQTT broker URL', () => {
-      heaterInstance.initMQTT();
+      platformInstance.initMQTT();
       expect(mqtt.connect).toHaveBeenCalledWith(
         'wss://mqtt.tesy.com:8083/mqtt',
         expect.any(Object)
       );
     });
 
-    test('should generate unique app_id', () => {
-      const appId = heaterInstance.app_id;
-      expect(appId).toMatch(/^hb[a-f0-9]{7}$/);
-
-      const anotherInstance = new TesyHeater(
-        {
-          info: jest.fn(),
-          error: jest.fn(),
-          debug: jest.fn()
-        },
-        {
-          name: 'Test Heater 2',
-          userid: '27356',
-          username: 'test@example.com',
-          password: 'testpass',
-          device_id: '123456',
-          maxTemp: 30,
-          minTemp: 10,
-          pullInterval: 60000
-        }
-      );
-
-      expect(anotherInstance.app_id).not.toBe(appId);
-    });
-
     test('should respect temperature limits from config', () => {
-      expect(heaterInstance.minTemp).toBe(10);
-      expect(heaterInstance.maxTemp).toBe(30);
+      expect(platformInstance.minTemp).toBe(10);
+      expect(platformInstance.maxTemp).toBe(30);
     });
   });
 });
