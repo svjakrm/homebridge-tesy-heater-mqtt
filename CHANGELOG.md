@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated heating state logic in `index.js` to check both `status` and `heating` fields
   - Added comprehensive unit tests covering all three CurrentHeaterCoolerState values
 
+- **Added GET handler for CurrentHeaterCoolerState characteristic**
+  - Fixes Homebridge UI showing incorrect state ("Heat" instead of "Idle")
+  - HomeKit/UI can now actively query device state on-demand
+  - Polling updates continue to work via `updateValue()` for real-time updates
+  - Extracted state calculation logic into reusable `_calculateHeatingState()` helper method
+  - Added 9 new unit tests for GET handler and helper method (36 total tests, 49% coverage)
+
 ## [1.0.1] - 2025-12-15
 
 ### Removed

@@ -239,6 +239,7 @@ class TesyHeaterPlatform {
       .on('set', this.setActive.bind(this, deviceInfo));
 
     service.getCharacteristic(Characteristic.CurrentHeaterCoolerState)
+      .on('get', this.getCurrentHeaterCoolerState.bind(this, deviceInfo))
       .updateValue(Characteristic.CurrentHeaterCoolerState.INACTIVE);
 
     service.getCharacteristic(Characteristic.TargetHeaterCoolerState)
@@ -440,17 +441,7 @@ class TesyHeaterPlatform {
       // INACTIVE (0) = device off
       // IDLE (1) = device on, not heating (target temp reached)
       // HEATING (2) = device on and actively heating
-      const isDeviceOn = status.status.toLowerCase() === 'on';
-      const isHeating = status.heating === 'on';
-
-      let heatingState;
-      if (!isDeviceOn) {
-        heatingState = Characteristic.CurrentHeaterCoolerState.INACTIVE;
-      } else if (isHeating) {
-        heatingState = Characteristic.CurrentHeaterCoolerState.HEATING;
-      } else {
-        heatingState = Characteristic.CurrentHeaterCoolerState.IDLE;
-      }
+      const heatingState = this._calculateHeatingState(status);
 
       const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
       if (heatingState !== oldState) {
@@ -511,6 +502,30 @@ class TesyHeaterPlatform {
 
       const targetTemp = parseFloat(status.temp);
       callback(null, targetTemp);
+    });
+  }
+
+  _calculateHeatingState(status) {
+    const isDeviceOn = status.status.toLowerCase() === 'on';
+    const isHeating = status.heating === 'on';
+
+    if (!isDeviceOn) {
+      return Characteristic.CurrentHeaterCoolerState.INACTIVE;
+    } else if (isHeating) {
+      return Characteristic.CurrentHeaterCoolerState.HEATING;
+    } else {
+      return Characteristic.CurrentHeaterCoolerState.IDLE;
+    }
+  }
+
+  getCurrentHeaterCoolerState(deviceInfo, callback) {
+    this.fetchDeviceStatus(deviceInfo, (error, status) => {
+      if (error) {
+        return callback(error);
+      }
+
+      const state = this._calculateHeatingState(status);
+      callback(null, state);
     });
   }
 
