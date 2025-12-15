@@ -467,4 +467,146 @@ describe('TesyHeater Platform Plugin', () => {
       expect(platformInstance.maxTemp).toBe(30);
     });
   });
+
+  describe('CurrentHeaterCoolerState Logic', () => {
+    let mockAccessory;
+    let mockService;
+    let mockCurrentHeaterCoolerState;
+    let mockCurrentTemperature;
+    let mockHeatingThresholdTemperature;
+    let mockActive;
+
+    beforeEach(() => {
+      // Setup device and accessory
+      const deviceInfo = {
+        id: '123456',
+        mac: 'AA:BB:CC:DD:EE:FF',
+        token: 'abc1234',
+        model: 'cn05uv',
+        name: 'Test Heater',
+        state: { temp: 20, status: 'on', heating: 'off', current_temp: 20 }
+      };
+
+      // Create separate mock characteristics
+      mockCurrentHeaterCoolerState = {
+        on: jest.fn().mockReturnThis(),
+        setProps: jest.fn().mockReturnThis(),
+        updateValue: jest.fn().mockReturnThis(),
+        value: 0 // Default to INACTIVE
+      };
+
+      mockCurrentTemperature = {
+        on: jest.fn().mockReturnThis(),
+        setProps: jest.fn().mockReturnThis(),
+        updateValue: jest.fn().mockReturnThis(),
+        value: 20
+      };
+
+      mockHeatingThresholdTemperature = {
+        on: jest.fn().mockReturnThis(),
+        setProps: jest.fn().mockReturnThis(),
+        updateValue: jest.fn().mockReturnThis(),
+        value: 20
+      };
+
+      mockActive = {
+        on: jest.fn().mockReturnThis(),
+        setProps: jest.fn().mockReturnThis(),
+        updateValue: jest.fn().mockReturnThis(),
+        value: 0
+      };
+
+      mockService = {
+        getCharacteristic: jest.fn((type) => {
+          if (type === Characteristic.CurrentHeaterCoolerState) return mockCurrentHeaterCoolerState;
+          if (type === Characteristic.CurrentTemperature) return mockCurrentTemperature;
+          if (type === Characteristic.HeatingThresholdTemperature) return mockHeatingThresholdTemperature;
+          if (type === Characteristic.Active) return mockActive;
+          return mockCurrentHeaterCoolerState;
+        }),
+        setCharacteristic: jest.fn().mockReturnThis()
+      };
+
+      mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-test-123456');
+      mockAccessory.getService = jest.fn(() => mockService);
+      mockAccessory.context = { deviceInfo };
+
+      platformInstance.devices['123456'] = {
+        info: deviceInfo,
+        accessory: mockAccessory
+      };
+    });
+
+    test('should set INACTIVE state when device is OFF', () => {
+      // Set initial state to IDLE (so change will trigger)
+      mockCurrentHeaterCoolerState.value = Characteristic.CurrentHeaterCoolerState.IDLE;
+
+      const status = {
+        status: 'off',
+        heating: 'off',
+        temp: 20,
+        current_temp: 20
+      };
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(Characteristic.CurrentHeaterCoolerState.INACTIVE);
+    });
+
+    test('should set IDLE state when device is ON but not heating', () => {
+      const status = {
+        status: 'on',
+        heating: 'off',
+        temp: 20,
+        current_temp: 20.5
+      };
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(Characteristic.CurrentHeaterCoolerState.IDLE);
+    });
+
+    test('should set HEATING state when device is ON and heating', () => {
+      const status = {
+        status: 'on',
+        heating: 'on',
+        temp: 22,
+        current_temp: 20
+      };
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(Characteristic.CurrentHeaterCoolerState.HEATING);
+    });
+
+    test('should not update state if value has not changed', () => {
+      const status = {
+        status: 'off',
+        heating: 'off',
+        temp: 20,
+        current_temp: 20
+      };
+
+      // Set current value to INACTIVE
+      mockCurrentHeaterCoolerState.value = Characteristic.CurrentHeaterCoolerState.INACTIVE;
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      // updateValue should not be called since value hasn't changed
+      expect(mockCurrentHeaterCoolerState.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should handle uppercase status values', () => {
+      const status = {
+        status: 'ON',
+        heating: 'on',
+        temp: 22,
+        current_temp: 20
+      };
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(Characteristic.CurrentHeaterCoolerState.HEATING);
+    });
+  });
 });

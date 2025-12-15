@@ -437,10 +437,21 @@ class TesyHeaterPlatform {
       }
 
       // Update heating state
+      // INACTIVE (0) = device off
+      // IDLE (1) = device on, not heating (target temp reached)
+      // HEATING (2) = device on and actively heating
+      const isDeviceOn = status.status.toLowerCase() === 'on';
       const isHeating = status.heating === 'on';
-      const heatingState = isHeating ?
-                          Characteristic.CurrentHeaterCoolerState.HEATING :
-                          Characteristic.CurrentHeaterCoolerState.IDLE;
+
+      let heatingState;
+      if (!isDeviceOn) {
+        heatingState = Characteristic.CurrentHeaterCoolerState.INACTIVE;
+      } else if (isHeating) {
+        heatingState = Characteristic.CurrentHeaterCoolerState.HEATING;
+      } else {
+        heatingState = Characteristic.CurrentHeaterCoolerState.IDLE;
+      }
+
       const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
       if (heatingState !== oldState) {
         service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);

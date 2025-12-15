@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2025-12-15
+
+### Fixed
+- **CurrentHeaterCoolerState now correctly shows INACTIVE when device is OFF** (Issue #8)
+  - Previously, the plugin incorrectly set state to IDLE for all non-heating scenarios
+  - Now properly distinguishes between three states:
+    - INACTIVE (0): Device is turned OFF
+    - IDLE (1): Device is ON but not actively heating (target temperature reached)
+    - HEATING (2): Device is ON and actively heating
+  - This fix ensures accurate status display in HomeKit app
+  - Updated heating state logic in `index.js` to check both `status` and `heating` fields
+  - Added comprehensive unit tests covering all three CurrentHeaterCoolerState values
+
 ## [1.0.1] - 2025-12-15
 
 ### Removed
