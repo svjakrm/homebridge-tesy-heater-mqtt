@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added proper `required` array at schema object level: `["name", "userid", "username", "password"]`
   - Config schema now passes Homebridge plugin verification checks
 
+### Added
+- **MQTT real-time status updates** (Performance improvement)
+  - Added message handler for incoming MQTT `setTempStatistic` messages
+  - Devices send status updates every ~10 seconds automatically
+  - Temperatures (current and target) now update within 1 second of device changes
+  - Heating state updates triggered on MQTT messages (with API fetch for full status)
+  - Significantly faster than polling-only approach (10s vs 60s)
+  - Debug logging with [MQTT] prefix to distinguish from polling updates
+  - Polling still active as fallback for reliability
+
 ### Security
 - **Removed deprecated `request` dependency** (Critical security fix)
   - Eliminated 2 critical vulnerabilities (form-data unsafe random, tough-cookie prototype pollution)
