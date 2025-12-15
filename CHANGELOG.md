@@ -25,7 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - HomeKit/UI can now actively query device state on-demand
   - Polling updates continue to work via `updateValue()` for real-time updates
   - Extracted state calculation logic into reusable `_calculateHeatingState()` helper method
-  - Added 9 new unit tests for GET handler and helper method (36 total tests, 49% coverage)
+  - **Improved state detection with temperature-based fallback**
+    - When API doesn't provide `heating` field, plugin now determines state by comparing current and target temperatures
+    - Device considered HEATING when current temp is 0.5°C or more below target
+    - Ensures accurate state display even when `heating` field is missing from API response
+  - Added 11 new unit tests for GET handler, helper method, and fallback logic (38 total tests, 51% coverage)
 
 ## [1.0.1] - 2025-12-15
 

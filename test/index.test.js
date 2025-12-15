@@ -724,5 +724,33 @@ describe('TesyHeater Platform Plugin', () => {
       const status2 = { status: 'OFF', heating: 'off' };
       expect(platformInstance._calculateHeatingState(status2)).toBe(Characteristic.CurrentHeaterCoolerState.INACTIVE);
     });
+
+    test('should fallback to temperature comparison when heating field is missing', () => {
+      // Device ON, heating field missing, current < target by 0.5°C or more → HEATING
+      const status1 = { status: 'on', temp: 22, current_temp: 20 };
+      expect(platformInstance._calculateHeatingState(status1)).toBe(Characteristic.CurrentHeaterCoolerState.HEATING);
+
+      // Device ON, heating field missing, current < target by exactly 0.5°C → HEATING
+      const status2 = { status: 'on', temp: 20, current_temp: 19.5 };
+      expect(platformInstance._calculateHeatingState(status2)).toBe(Characteristic.CurrentHeaterCoolerState.HEATING);
+
+      // Device ON, heating field missing, current >= target → IDLE
+      const status3 = { status: 'on', temp: 20, current_temp: 20 };
+      expect(platformInstance._calculateHeatingState(status3)).toBe(Characteristic.CurrentHeaterCoolerState.IDLE);
+
+      // Device ON, heating field missing, current > target → IDLE
+      const status4 = { status: 'on', temp: 20, current_temp: 20.5 };
+      expect(platformInstance._calculateHeatingState(status4)).toBe(Characteristic.CurrentHeaterCoolerState.IDLE);
+
+      // Device ON, heating field missing, current < target by less than 0.5°C → IDLE
+      const status5 = { status: 'on', temp: 20, current_temp: 19.6 };
+      expect(platformInstance._calculateHeatingState(status5)).toBe(Characteristic.CurrentHeaterCoolerState.IDLE);
+    });
+
+    test('should prefer heating field over temperature fallback when both exist', () => {
+      // heating field says 'off', but temp difference suggests heating → trust heating field
+      const status = { status: 'on', heating: 'off', temp: 22, current_temp: 20 };
+      expect(platformInstance._calculateHeatingState(status)).toBe(Characteristic.CurrentHeaterCoolerState.IDLE);
+    });
   });
 });
