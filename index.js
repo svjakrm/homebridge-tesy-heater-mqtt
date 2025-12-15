@@ -138,7 +138,19 @@ class TesyHeaterPlatform {
 
     if (accessory) {
       this.log.info("Restoring existing accessory:", deviceInfo.name);
-      accessory.displayName = deviceInfo.name;
+
+      // Update name if changed
+      if (accessory.displayName !== deviceInfo.name) {
+        this.log.info("Updating accessory name from '%s' to '%s'", accessory.displayName, deviceInfo.name);
+        accessory.displayName = deviceInfo.name;
+
+        // Update the service name too
+        const service = accessory.getService(Service.HeaterCooler);
+        if (service) {
+          service.setCharacteristic(Characteristic.Name, deviceInfo.name);
+        }
+      }
+
       accessory.context.deviceInfo = deviceInfo;
       this.api.updatePlatformAccessories([accessory]);
     } else {
