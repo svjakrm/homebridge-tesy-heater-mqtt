@@ -1,0 +1,25 @@
+# Test files
+test/
+test-mqtt.js
+test-mqtt-control.js
+test-mqtt-temp.js
+jest.config.js
+coverage/
+
+# Development files
+.github/
+.gitignore
+Claude.md
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.test

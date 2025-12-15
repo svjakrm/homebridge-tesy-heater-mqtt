@@ -1,0 +1,113 @@
+{
+  "pluginAlias": "TesyHeater",
+  "pluginType": "platform",
+  "singular": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "TesyHeater",
+        "required": true
+      },
+      "userid": {
+        "title": "Tesy Cloud User ID",
+        "type": "string",
+        "required": true,
+        "description": "Your Tesy Cloud account user ID (numeric)"
+      },
+      "username": {
+        "title": "Tesy Cloud Email",
+        "type": "string",
+        "required": true,
+        "format": "email",
+        "description": "Your Tesy Cloud account email address"
+      },
+      "password": {
+        "title": "Tesy Cloud Password",
+        "type": "string",
+        "required": true,
+        "description": "Your Tesy Cloud account password"
+      },
+      "maxTemp": {
+        "title": "Maximum Temperature (°C)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 10,
+        "maximum": 40,
+        "description": "Maximum temperature limit for all heaters"
+      },
+      "minTemp": {
+        "title": "Minimum Temperature (°C)",
+        "type": "integer",
+        "default": 10,
+        "minimum": 5,
+        "maximum": 25,
+        "description": "Minimum temperature limit for all heaters"
+      },
+      "pullInterval": {
+        "title": "Status Update Interval (ms)",
+        "type": "integer",
+        "default": 60000,
+        "minimum": 30000,
+        "maximum": 300000,
+        "description": "How often to poll device status (in milliseconds). Default: 60000 (1 minute)"
+      }
+    }
+  },
+  "layout": [
+    {
+      "type": "help",
+      "helpvalue": "<h5>Tesy Heater Platform</h5><p>This plugin will <strong>automatically discover</strong> all Tesy heaters linked to your Tesy Cloud account. Simply enter your credentials below and restart Homebridge.</p>"
+    },
+    "name",
+    {
+      "type": "section",
+      "title": "Tesy Cloud Credentials",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        {
+          "key": "userid",
+          "type": "string",
+          "placeholder": "27356"
+        },
+        {
+          "key": "username",
+          "type": "string",
+          "placeholder": "your.email@example.com"
+        },
+        {
+          "key": "password",
+          "type": "string",
+          "placeholder": "Your password"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Advanced Settings",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "maxTemp",
+          "type": "number"
+        },
+        {
+          "key": "minTemp",
+          "type": "number"
+        },
+        {
+          "key": "pullInterval",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "help",
+      "helpvalue": "<p><strong>How to find your User ID:</strong></p><ol><li>Log in to <a href='https://v4.mytesy.com' target='_blank'>Tesy Cloud</a></li><li>Check the browser URL or use the API to retrieve your user ID</li><li>Or run: <code>curl 'https://ad.mytesy.com/rest/get-my-devices?userEmail=YOUR_EMAIL&userPass=YOUR_PASSWORD&lang=en'</code></li></ol>"
+    }
+  ]
+}
