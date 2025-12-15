@@ -1,6 +1,6 @@
 var Service, Characteristic, API;
 const mqtt = require('mqtt');
-const request = require('request');
+const https = require('https');
 const querystring = require('querystring');
 
 module.exports = function(homebridge) {
@@ -61,19 +61,16 @@ class TesyHeaterPlatform {
       'lang': 'en'
     });
 
-    const options = {
-      'method': 'GET',
-      'url': 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams
-    };
+    const url = 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams;
 
-    request(options, (error, response) => {
+    this._httpsGet(url, (error, body) => {
       if (error) {
         this.log.error("API Error:", error);
         return;
       }
 
       try {
-        const data = JSON.parse(response.body);
+        const data = JSON.parse(body);
 
         if (!data || Object.keys(data).length === 0) {
           this.log.warn("No devices found in your Tesy Cloud account");
@@ -115,6 +112,7 @@ class TesyHeaterPlatform {
             mac: mac,
             token: deviceData.token,
             model: deviceData.model || 'cn05uv',
+            firmware_version: deviceData.firmware_version,
             name: deviceName,
             state: state
           });
@@ -225,7 +223,8 @@ class TesyHeaterPlatform {
     informationService
       .setCharacteristic(Characteristic.Manufacturer, 'Tesy')
       .setCharacteristic(Characteristic.Model, deviceInfo.model || 'Convector')
-      .setCharacteristic(Characteristic.SerialNumber, deviceInfo.id);
+      .setCharacteristic(Characteristic.SerialNumber, `${deviceInfo.id} (${deviceInfo.mac})`)
+      .setCharacteristic(Characteristic.FirmwareRevision, deviceInfo.firmware_version || '0.0.0');
 
     // HeaterCooler Service
     let service = accessory.getService(Service.HeaterCooler);
@@ -315,6 +314,83 @@ class TesyHeaterPlatform {
     this.mqttClient.on('offline', () => {
       this.log.warn("MQTT client offline");
     });
+
+    // Handle incoming MQTT messages for real-time status updates
+    this.mqttClient.on('message', (topic, message) => {
+      try {
+        // Parse topic: v1/{MAC}/response/{MODEL}/{TOKEN}/{COMMAND}
+        const topicParts = topic.split('/');
+        if (topicParts.length < 6) return;
+
+        const mac = topicParts[1];
+        const command = topicParts[5];
+
+        // Only process setTempStatistic messages (periodic status updates from device)
+        if (command !== 'setTempStatistic') return;
+
+        const data = JSON.parse(message.toString());
+        if (!data.payload) return;
+
+        const payload = data.payload;
+
+        // Find device by MAC address
+        const device = Object.values(this.devices).find(d => d.info.mac === mac);
+        if (!device) return;
+
+        // Update temperatures immediately from MQTT
+        // Note: setTempStatistic messages don't include 'status' (on/off) field,
+        // so we'll fetch full status separately when heating state changes
+        const service = device.accessory.getService(Service.HeaterCooler);
+        if (!service) return;
+
+        // Update current temperature
+        if (payload.currentTemp !== undefined) {
+          const currentTemp = parseFloat(payload.currentTemp);
+          if (!isNaN(currentTemp)) {
+            const oldTemp = service.getCharacteristic(Characteristic.CurrentTemperature).value;
+            if (currentTemp !== oldTemp) {
+              service.getCharacteristic(Characteristic.CurrentTemperature).updateValue(currentTemp);
+              this.log.debug("%s: [MQTT] CurrentTemperature %s -> %s",
+                device.info.name, oldTemp, currentTemp);
+            }
+          }
+        }
+
+        // Update target temperature
+        if (payload.target !== undefined && payload.target > 0) {
+          const targetTemp = parseFloat(payload.target);
+          if (!isNaN(targetTemp) && targetTemp >= this.minTemp && targetTemp <= this.maxTemp) {
+            const oldTarget = service.getCharacteristic(Characteristic.HeatingThresholdTemperature).value;
+            if (targetTemp !== oldTarget) {
+              service.getCharacteristic(Characteristic.HeatingThresholdTemperature).updateValue(targetTemp);
+              this.log.debug("%s: [MQTT] HeatingThresholdTemperature %s -> %s",
+                device.info.name, oldTarget, targetTemp);
+            }
+          }
+        }
+
+        // For heating state, we need full status including 'status' (on/off)
+        // MQTT setTempStatistic doesn't include 'status' field
+        // So we'll trigger a fetch if heating field changed
+        if (payload.heating !== undefined) {
+          // Fetch full status to update heating state correctly
+          this.fetchDeviceStatus(device.info, (error, fullStatus) => {
+            if (error) return;
+
+            const heatingState = this._calculateHeatingState(fullStatus);
+            const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
+
+            if (heatingState !== oldState) {
+              service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
+              this.log.debug("%s: [MQTT] Heating state %s -> %s",
+                device.info.name, oldState, heatingState);
+            }
+          });
+        }
+      } catch (error) {
+        this.log.debug("Error processing MQTT message:", error.message);
+      }
+    });
   }
 
   sendMQTTCommand(deviceInfo, command, payload, callback) {
@@ -349,18 +425,15 @@ class TesyHeaterPlatform {
       'lang': 'en'
     });
 
-    const options = {
-      'method': 'GET',
-      'url': 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams
-    };
+    const url = 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams;
 
-    request(options, (error, response) => {
+    this._httpsGet(url, (error, body) => {
       if (error) {
         return callback(error, null);
       }
 
       try {
-        const data = JSON.parse(response.body);
+        const data = JSON.parse(body);
         const deviceData = data[deviceInfo.mac];
 
         if (!deviceData || !deviceData.state) {
@@ -571,6 +644,23 @@ class TesyHeaterPlatform {
         this.log.info("%s: ✓ Temperature set to %s°C", deviceInfo.name, value);
         callback(null);
       });
+    });
+  }
+
+  // Helper method for HTTPS GET requests
+  _httpsGet(url, callback) {
+    https.get(url, (response) => {
+      let data = '';
+
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      response.on('end', () => {
+        callback(null, data);
+      });
+    }).on('error', (error) => {
+      callback(error, null);
     });
   }
 }
