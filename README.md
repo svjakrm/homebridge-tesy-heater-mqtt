@@ -1,6 +1,7 @@
 # homebridge-tesy-heater-mqtt
 
 [![Test](https://github.com/svjakrm/homebridge-tesy-heater-mqtt/actions/workflows/test.yml/badge.svg)](https://github.com/svjakrm/homebridge-tesy-heater-mqtt/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/svjakrm/homebridge-tesy-heater-mqtt/branch/main/graph/badge.svg)](https://codecov.io/gh/svjakrm/homebridge-tesy-heater-mqtt)
 [![npm version](https://badge.fury.io/js/homebridge-tesy-heater-mqtt.svg)](https://badge.fury.io/js/homebridge-tesy-heater-mqtt)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -35,15 +36,17 @@ If you successfully use this plugin with other Tesy models, please let us know!
 This project is based on [homebridge-tesy-heater](https://github.com/benov84/homebridge-tesy-heater) by [Dobriyan Benov](https://github.com/benov84). The original plugin was updated to work with Tesy API v4 and MQTT control protocol.
 
 **Major changes from original:**
+- **Platform plugin architecture** - complete rewrite from Accessory to Platform
+- **Automatic device discovery** - finds all Tesy heaters automatically
+- **Multi-device support** - manages multiple heaters with single configuration
 - Migrated from Tesy API v3 to API v4
-- Implemented MQTT control for device commands
-- Added `mqtt` dependency for real-time communication
-- Removed obsolete authentication methods
+- Implemented MQTT control for device commands (real-time communication)
 - Added getter for `HeatingThresholdTemperature` characteristic
+- Comprehensive unit tests with 44% code coverage
 
 ## Installation
 
-### Option 1: Install from npm (when published)
+### Option 1: Install from npm (recommended)
 ```bash
 npm install -g homebridge-tesy-heater-mqtt
 ```
@@ -237,6 +240,7 @@ Pull requests are welcome! For major changes, please open an issue first to disc
 
 ## Links
 
+- [NPM Package](https://www.npmjs.com/package/homebridge-tesy-heater-mqtt)
 - [GitHub Repository](https://github.com/svjakrm/homebridge-tesy-heater-mqtt)
 - [Original Plugin](https://github.com/benov84/homebridge-tesy-heater)
 - [Homebridge](https://github.com/homebridge/homebridge)

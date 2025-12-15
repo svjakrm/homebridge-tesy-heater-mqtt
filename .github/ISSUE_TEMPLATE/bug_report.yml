@@ -1,0 +1,126 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the form below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output
+      description: Please copy and paste any relevant Homebridge log output. This will be automatically formatted.
+      render: shell
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin Version
+      description: What version of the plugin are you running?
+      placeholder: "1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: homebridge-version
+    attributes:
+      label: Homebridge Version
+      description: What version of Homebridge are you running?
+      placeholder: "1.8.0 or 2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js Version
+      description: What version of Node.js are you running?
+      placeholder: "18.x, 20.x, 22.x, or 24.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Linux (Raspberry Pi OS)
+        - Linux (Ubuntu/Debian)
+        - Linux (Other)
+        - macOS
+        - Windows (WSL)
+        - Docker
+        - HOOBS
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: device-info
+    attributes:
+      label: Tesy Device Information
+      description: |
+        Please provide information about your Tesy device(s):
+        - Device model (e.g., Tesy CN 06 100 EА CLOUD AS W)
+        - Number of devices
+        - Any device-specific settings
+      placeholder: |
+        Model: Tesy CN 06 100 EА CLOUD AS W
+        Quantity: 2 devices
+        Settings: Default
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: |
+        Please share your plugin configuration (remove sensitive information like passwords!)
+      render: json
+      placeholder: |
+        {
+          "platform": "TesyHeater",
+          "name": "TesyHeater",
+          "userid": "YOUR_USER_ID",
+          "username": "your.email@example.com",
+          "password": "REDACTED",
+          "maxTemp": 30,
+          "minTemp": 10
+        }
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here.

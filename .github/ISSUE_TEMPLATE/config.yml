@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or Support
+    url: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Documentation
+    url: https://github.com/svjakrm/homebridge-tesy-heater-mqtt#readme
+    about: Read the plugin documentation and setup guide
+  - name: Original Plugin (Benov84)
+    url: https://github.com/benov84/homebridge-tesy-heater
+    about: Check the original plugin for reference
