@@ -1,0 +1,58 @@
+{
+  "name": "homebridge-tesy-heater-mqtt",
+  "displayName": "Homebridge Tesy Heater MQTT",
+  "version": "0.0.1",
+  "description": "Tesy heater plugin for Homebridge using MQTT control (API v4). Supports on/off control and temperature adjustment.",
+  "license": "MIT",
+  "keywords": [
+    "homebridge-plugin",
+    "tesy",
+    "heater",
+    "convector",
+    "mqtt",
+    "smart-home",
+    "homekit"
+  ],
+  "engines": {
+    "node": "^18.20.4 || ^20.15.1 || ^22",
+    "homebridge": "^1.6.0 || ^2.0.0"
+  },
+  "author": {
+    "name": "Aleksey Molchanov",
+    "email": "molchanov.alex@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "Dobriyan Benov",
+      "url": "https://github.com/benov84/homebridge-tesy-heater"
+    }
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svjakrm/homebridge-tesy-heater-mqtt.git"
+  },
+  "dependencies": {
+    "homebridge-http-base": "2.1.6",
+    "mqtt": "^5.14.1",
+    "request": "^2.65.0"
+  },
+  "bugs": {
+    "url": "https://github.com/svjakrm/homebridge-tesy-heater-mqtt/issues"
+  },
+  "homepage": "https://github.com/svjakrm/homebridge-tesy-heater-mqtt#readme",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "funding": [
+    {
+      "type": "revolut",
+      "url": "https://revolut.me/molchaoxez"
+    }
+  ],
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0"
+  }
+}

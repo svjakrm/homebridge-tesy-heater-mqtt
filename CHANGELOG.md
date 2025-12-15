@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- GitHub Actions CI/CD workflows
+- Automated testing on push and PR
+- Automated NPM publishing on version tags
+- `.npmignore` file to exclude dev files from package
+
+### Changed
+- Updated README with CI badges
+- Added setup guide for GitHub Actions
+
+## [0.0.1] - 2025-12-15
+
+### Added
+- Initial release based on homebridge-tesy-heater
+- Support for Tesy API v4
+- MQTT control protocol implementation
+- Real-time device control via MQTT WebSocket
+- Temperature setter and getter
+- On/Off control
+- Current temperature reporting
+- Target temperature configuration
+- Unit tests with ~35% coverage
+- Test scripts for MQTT debugging
+- Support for Homebridge v2.x
+
+### Changed
+- Migrated from Tesy API v3 to v4
+- Replaced REST API control with MQTT
+- Updated configuration for Homebridge v2 compatibility
+- Modernized Node.js compatibility (18.x, 20.x, 22.x)
+
+### Fixed
+- Missing getter for HeatingThresholdTemperature characteristic
+- Device not responding to REST API commands
+- Compatibility issues with latest Homebridge versions
+
+### Technical Details
+- MQTT broker: wss://mqtt.tesy.com:8083/mqtt
+- Command topics: v1/{MAC}/request/{MODEL}/{TOKEN}/{COMMAND}
+- Response topics: v1/{MAC}/response/{MODEL}/{TOKEN}/{COMMAND}
+- Supported commands: onOff, setTemp, setMode
+
+### Tested Devices
+- Tesy CN 06 100 EА CLOUD AS W
+
+[Unreleased]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/releases/tag/v0.0.1
