@@ -239,7 +239,7 @@ class TesyHeaterPlatform {
         maxValue: this.maxTemp,
         minStep: 0.5
       })
-      .updateValue(0);
+      .updateValue(this.minTemp);
   }
 
   initMQTT() {
