@@ -748,4 +748,239 @@ describe('TesyHeater Platform Plugin', () => {
       expect(platformInstance._calculateHeatingState(status)).toBe(Characteristic.CurrentHeaterCoolerState.IDLE);
     });
   });
+
+  describe('MQTT Message Handler', () => {
+    let mockAccessory;
+    let mockService;
+    let mockCurrentHeaterCoolerState;
+    let mockCurrentTemperature;
+    let mockHeatingThresholdTemperature;
+    let messageHandler;
+
+    beforeEach(() => {
+      // Reset mocks
+      jest.clearAllMocks();
+
+      // Setup mock characteristics
+      mockCurrentHeaterCoolerState = {
+        value: 0,
+        updateValue: jest.fn().mockReturnThis()
+      };
+
+      mockCurrentTemperature = {
+        value: 20,
+        updateValue: jest.fn().mockReturnThis()
+      };
+
+      mockHeatingThresholdTemperature = {
+        value: 20,
+        updateValue: jest.fn().mockReturnThis()
+      };
+
+      mockService = {
+        getCharacteristic: jest.fn((type) => {
+          if (type === Characteristic.CurrentHeaterCoolerState) return mockCurrentHeaterCoolerState;
+          if (type === Characteristic.CurrentTemperature) return mockCurrentTemperature;
+          if (type === Characteristic.HeatingThresholdTemperature) return mockHeatingThresholdTemperature;
+          return { updateValue: jest.fn() };
+        })
+      };
+
+      mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-123456');
+      mockAccessory.getService = jest.fn(() => mockService);
+
+      // Setup device
+      const deviceInfo = {
+        id: '123456',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      platformInstance.devices['123456'] = {
+        info: deviceInfo,
+        accessory: mockAccessory
+      };
+
+      // Initialize MQTT (this registers the message handler)
+      platformInstance.initMQTT();
+
+      // Capture the message handler from mockMqttClient.on calls
+      const onCalls = mockMqttClient.on.mock.calls;
+      const messageCall = onCalls.find(call => call[0] === 'message');
+      messageHandler = messageCall ? messageCall[1] : null;
+    });
+
+    test('should update CurrentTemperature from setTempStatistic message', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 22.5,
+          target: 20,
+          heating: 'off'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).toHaveBeenCalledWith(22.5);
+    });
+
+    test('should update HeatingThresholdTemperature from setTempStatistic message', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 20,
+          target: 23,
+          heating: 'off'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockHeatingThresholdTemperature.updateValue).toHaveBeenCalledWith(23);
+    });
+
+    test('should trigger heating state update when heating field changes', (done) => {
+      const mockFetchDeviceStatus = jest.fn((_deviceInfo, callback) => {
+        callback(null, {
+          status: 'on',
+          heating: 'on',
+          temp: 20,
+          current_temp: 18
+        });
+      });
+
+      platformInstance.fetchDeviceStatus = mockFetchDeviceStatus;
+
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 18,
+          target: 20,
+          heating: 'on'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      // Give async operation time to complete
+      setImmediate(() => {
+        expect(mockFetchDeviceStatus).toHaveBeenCalled();
+        expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(
+          Characteristic.CurrentHeaterCoolerState.HEATING
+        );
+        done();
+      });
+    });
+
+    test('should ignore messages with invalid topic format', () => {
+      const topic = 'v1/invalid';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 22,
+          target: 20
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should ignore non-setTempStatistic messages', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/onOff';
+      const message = JSON.stringify({
+        payload: {
+          status: 'on'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should ignore messages without payload', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({});
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should ignore messages for unknown devices', () => {
+      const topic = 'v1/AA:BB:CC:DD:EE:FF/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 22,
+          target: 20
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should handle invalid JSON gracefully', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = 'invalid json';
+
+      // Should not throw error
+      expect(() => {
+        messageHandler(topic, Buffer.from(message));
+      }).not.toThrow();
+    });
+
+    test('should not update temperature if value unchanged', () => {
+      mockCurrentTemperature.value = 22;
+
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 22,
+          target: 20,
+          heating: 'off'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockCurrentTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should respect temperature limits for target temperature', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 20,
+          target: 50, // Above maxTemp (30)
+          heating: 'off'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      // Should not update because 50 > maxTemp
+      expect(mockHeatingThresholdTemperature.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('should ignore target temperature of 0', () => {
+      const topic = 'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/setTempStatistic';
+      const message = JSON.stringify({
+        payload: {
+          currentTemp: 20,
+          target: 0,
+          heating: 'off'
+        }
+      });
+
+      messageHandler(topic, Buffer.from(message));
+
+      expect(mockHeatingThresholdTemperature.updateValue).not.toHaveBeenCalled();
+    });
+  });
 });

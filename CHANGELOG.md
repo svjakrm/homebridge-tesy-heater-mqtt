@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Serial Number now shows Device ID and MAC address (e.g., "216884 (1C:9D:C2:36:9D:84)")
   - Firmware Revision now displays actual device firmware version (e.g., "4.79")
   - Improves device identification in Homebridge UI and HomeKit
+- **Improved test coverage**
+  - Added 11 unit tests for MQTT message handler
+  - Test coverage increased from 49% to 64% (+15%)
+  - 49 tests total, all passing
 
 ## [1.0.2] - 2025-12-15
 
