@@ -239,6 +239,7 @@ class TesyHeaterPlatform {
       .on('set', this.setActive.bind(this, deviceInfo));
 
     service.getCharacteristic(Characteristic.CurrentHeaterCoolerState)
+      .on('get', this.getCurrentHeaterCoolerState.bind(this, deviceInfo))
       .updateValue(Characteristic.CurrentHeaterCoolerState.INACTIVE);
 
     service.getCharacteristic(Characteristic.TargetHeaterCoolerState)
@@ -437,10 +438,11 @@ class TesyHeaterPlatform {
       }
 
       // Update heating state
-      const isHeating = status.heating === 'on';
-      const heatingState = isHeating ?
-                          Characteristic.CurrentHeaterCoolerState.HEATING :
-                          Characteristic.CurrentHeaterCoolerState.IDLE;
+      // INACTIVE (0) = device off
+      // IDLE (1) = device on, not heating (target temp reached)
+      // HEATING (2) = device on and actively heating
+      const heatingState = this._calculateHeatingState(status);
+
       const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
       if (heatingState !== oldState) {
         service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
@@ -500,6 +502,46 @@ class TesyHeaterPlatform {
 
       const targetTemp = parseFloat(status.temp);
       callback(null, targetTemp);
+    });
+  }
+
+  _calculateHeatingState(status) {
+    const isDeviceOn = status.status.toLowerCase() === 'on';
+
+    if (!isDeviceOn) {
+      return Characteristic.CurrentHeaterCoolerState.INACTIVE;
+    }
+
+    // Check if heating field exists and is explicit
+    if (status.heating !== undefined) {
+      const isHeating = status.heating === 'on';
+      return isHeating ?
+        Characteristic.CurrentHeaterCoolerState.HEATING :
+        Characteristic.CurrentHeaterCoolerState.IDLE;
+    }
+
+    // Fallback: if heating field is missing, determine by temperature difference
+    // If current temp is significantly below target, device is likely heating
+    const currentTemp = parseFloat(status.current_temp) || 0;
+    const targetTemp = parseFloat(status.temp) || 0;
+    const tempDiff = targetTemp - currentTemp;
+
+    // If current temp is 0.5°C or more below target, assume heating
+    if (tempDiff >= 0.5) {
+      return Characteristic.CurrentHeaterCoolerState.HEATING;
+    } else {
+      return Characteristic.CurrentHeaterCoolerState.IDLE;
+    }
+  }
+
+  getCurrentHeaterCoolerState(deviceInfo, callback) {
+    this.fetchDeviceStatus(deviceInfo, (error, status) => {
+      if (error) {
+        return callback(error);
+      }
+
+      const state = this._calculateHeatingState(status);
+      callback(null, state);
     });
   }
 
