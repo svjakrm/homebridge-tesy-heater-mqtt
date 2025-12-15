@@ -11,11 +11,15 @@ Homebridge plugin for Tesy heaters using MQTT control (Tesy API v4).
 This plugin allows you to control your Tesy smart heaters through Apple HomeKit using Homebridge. It uses the latest Tesy API v4 with MQTT for real-time device control.
 
 **Features:**
+- **Automatic device discovery** - finds all Tesy heaters in your account
+- **Multi-device support** - manages multiple heaters with one configuration
 - Turn heater on/off
 - Set target temperature
 - View current temperature
 - View heating status
 - Temperature range configuration
+- Real-time MQTT control
+- Persistent device caching
 
 ## Compatibility
 
@@ -58,18 +62,17 @@ npm install -g .
 
 ## Configuration
 
-Add this accessory to your Homebridge `config.json`:
+Add this platform to your Homebridge `config.json`:
 
 ```json
 {
-  "accessories": [
+  "platforms": [
     {
-      "accessory": "TesyHeater",
-      "name": "Living Room Heater",
+      "platform": "TesyHeater",
+      "name": "TesyHeater",
       "userid": "YOUR_USER_ID",
       "username": "your.email@example.com",
       "password": "your_password",
-      "device_id": "YOUR_DEVICE_ID",
       "maxTemp": 30,
       "minTemp": 10,
       "pullInterval": 60000
@@ -78,59 +81,63 @@ Add this accessory to your Homebridge `config.json`:
 }
 ```
 
+**Note:** The plugin will **automatically discover** all Tesy heaters linked to your account. No need to specify device IDs!
+
 ### Configuration Parameters
 
 | Parameter | Required | Description | Default |
 |-----------|----------|-------------|---------|
-| `accessory` | **Yes** | Must be `TesyHeater` | - |
-| `name` | **Yes** | Name of your heater in HomeKit | - |
+| `platform` | **Yes** | Must be `TesyHeater` | - |
+| `name` | **Yes** | Platform name | `TesyHeater` |
 | `userid` | **Yes** | Your Tesy account user ID | - |
 | `username` | **Yes** | Your Tesy account email | - |
 | `password` | **Yes** | Your Tesy account password | - |
-| `device_id` | **Yes** | Device ID from Tesy Cloud | - |
 | `maxTemp` | No | Maximum temperature (°C) | `30` |
 | `minTemp` | No | Minimum temperature (°C) | `10` |
-| `pullInterval` | No | Status update interval (ms) | `10000` |
+| `pullInterval` | No | Status update interval (ms) | `60000` |
 
 ### How to Get Configuration Values
 
-1. **Get your credentials** (`userid`, `username`, `password`):
-   - These are your Tesy Cloud account credentials
-   - `userid` can be found in the Tesy Cloud web interface
-   - `username` is your email used to log in
-   - `password` is your Tesy Cloud password
+**Get your credentials** (`userid`, `username`, `password`):
+- These are your Tesy Cloud account credentials
+- `userid` can be found in the Tesy Cloud web interface or via API
+- `username` is your email used to log in to Tesy Cloud
+- `password` is your Tesy Cloud password
 
-2. **Get device_id**:
+**To find your User ID**, run this command:
+```bash
+curl -s 'https://ad.mytesy.com/rest/get-my-devices?userEmail=YOUR_EMAIL&userPass=YOUR_PASSWORD&lang=en' | python3 -m json.tool
+```
 
-   Run this command (replace with your credentials):
-   ```bash
-   curl -s 'https://ad.mytesy.com/rest/get-my-devices?userID=YOUR_USER_ID&userEmail=YOUR_EMAIL&userPass=YOUR_PASSWORD&lang=en' | python3 -m json.tool
-   ```
+The response will show your `userid` and all your devices. Example:
+```json
+{
+  "AA:BB:CC:DD:EE:FF": {
+    "deviceName": "Living Room Heater",
+    "token": "abc1234",
+    "state": {
+      "id": 123456,
+      "mac": "AA:BB:CC:DD:EE:FF",
+      "status": "on",
+      "temp": 20,
+      ...
+    }
+  }
+}
+```
 
-   Look for your device in the response. The `device_id` is found in the `state.id` field:
-   ```json
-   {
-     "AA:BB:CC:DD:EE:FF": {
-       "token": "abc1234",
-       "state": {
-         "id": 123456,  // <-- This is your device_id
-         "mac": "AA:BB:CC:DD:EE:FF",
-         "deviceName": null,
-         "status": "on",
-         ...
-       }
-     }
-   }
-   ```
+**That's it!** The plugin will automatically discover all devices in your account.
 
 ## Technical Details
 
 ### How it Works
 
-1. **Status Updates**: Uses Tesy API v4 (`/rest/get-my-devices`) to poll device status
-2. **Device Control**: Connects to Tesy MQTT broker (`wss://mqtt.tesy.com:8083`) for real-time commands
-3. **MQTT Topics**: `v1/{MAC}/request/{MODEL}/{TOKEN}/{COMMAND}`
-4. **Commands**: `onOff` (power), `setTemp` (temperature), `setMode` (heating mode)
+1. **Device Discovery**: Fetches all devices from Tesy API v4 (`/rest/get-my-devices`) on startup
+2. **Status Updates**: Polls device status periodically (default: 60 seconds)
+3. **Device Control**: Single MQTT connection (`wss://mqtt.tesy.com:8083`) shared by all devices
+4. **MQTT Topics**: `v1/{MAC}/request/{MODEL}/{TOKEN}/{COMMAND}`
+5. **Commands**: `onOff` (power), `setTemp` (temperature), `setMode` (heating mode)
+6. **Caching**: Devices persist across Homebridge restarts
 
 ### MQTT Protocol
 
