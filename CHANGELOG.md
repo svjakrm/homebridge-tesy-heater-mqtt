@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2025-12-15
+
+### Fixed
+- **Fixed Config Schema validation** (Homebridge verification requirement)
+  - Removed invalid `required: true` from individual properties
+  - Added proper `required` array at schema object level: `["name", "userid", "username", "password"]`
+  - Config schema now passes Homebridge plugin verification checks
+
+### Security
+- **Removed deprecated `request` dependency** (Critical security fix)
+  - Eliminated 2 critical vulnerabilities (form-data unsafe random, tough-cookie prototype pollution)
+  - Replaced with Node.js built-in `https` module
+  - Reduces package size by removing 3 vulnerable transitive dependencies
+  - No functionality changes - API calls work identically
+  - All 38 unit tests pass with new implementation
+
+### Changed
+- Implemented `_httpsGet()` helper method for API requests
+- Updated `discoverDevices()` and `fetchDeviceStatus()` to use native HTTPS
+
 ## [1.0.2] - 2025-12-15
 
 ### Fixed
@@ -119,7 +139,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tested Devices
 - Tesy CN 06 100 EА CLOUD AS W
 
-[Unreleased]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/releases/tag/v0.0.1

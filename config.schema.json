@@ -8,26 +8,22 @@
       "name": {
         "title": "Platform Name",
         "type": "string",
-        "default": "TesyHeater",
-        "required": true
+        "default": "TesyHeater"
       },
       "userid": {
         "title": "Tesy Cloud User ID",
         "type": "string",
-        "required": true,
         "description": "Your Tesy Cloud account user ID (numeric)"
       },
       "username": {
         "title": "Tesy Cloud Email",
         "type": "string",
-        "required": true,
         "format": "email",
         "description": "Your Tesy Cloud account email address"
       },
       "password": {
         "title": "Tesy Cloud Password",
         "type": "string",
-        "required": true,
         "description": "Your Tesy Cloud account password"
       },
       "maxTemp": {
@@ -54,7 +50,8 @@
         "maximum": 300000,
         "description": "How often to poll device status (in milliseconds). Default: 60000 (1 minute)"
       }
-    }
+    },
+    "required": ["name", "userid", "username", "password"]
   },
   "layout": [
     {

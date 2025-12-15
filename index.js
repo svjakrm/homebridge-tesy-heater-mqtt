@@ -1,6 +1,6 @@
 var Service, Characteristic, API;
 const mqtt = require('mqtt');
-const request = require('request');
+const https = require('https');
 const querystring = require('querystring');
 
 module.exports = function(homebridge) {
@@ -61,19 +61,16 @@ class TesyHeaterPlatform {
       'lang': 'en'
     });
 
-    const options = {
-      'method': 'GET',
-      'url': 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams
-    };
+    const url = 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams;
 
-    request(options, (error, response) => {
+    this._httpsGet(url, (error, body) => {
       if (error) {
         this.log.error("API Error:", error);
         return;
       }
 
       try {
-        const data = JSON.parse(response.body);
+        const data = JSON.parse(body);
 
         if (!data || Object.keys(data).length === 0) {
           this.log.warn("No devices found in your Tesy Cloud account");
@@ -349,18 +346,15 @@ class TesyHeaterPlatform {
       'lang': 'en'
     });
 
-    const options = {
-      'method': 'GET',
-      'url': 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams
-    };
+    const url = 'https://ad.mytesy.com/rest/get-my-devices?' + queryParams;
 
-    request(options, (error, response) => {
+    this._httpsGet(url, (error, body) => {
       if (error) {
         return callback(error, null);
       }
 
       try {
-        const data = JSON.parse(response.body);
+        const data = JSON.parse(body);
         const deviceData = data[deviceInfo.mac];
 
         if (!deviceData || !deviceData.state) {
@@ -571,6 +565,23 @@ class TesyHeaterPlatform {
         this.log.info("%s: ✓ Temperature set to %s°C", deviceInfo.name, value);
         callback(null);
       });
+    });
+  }
+
+  // Helper method for HTTPS GET requests
+  _httpsGet(url, callback) {
+    https.get(url, (response) => {
+      let data = '';
+
+      response.on('data', (chunk) => {
+        data += chunk;
+      });
+
+      response.on('end', () => {
+        callback(null, data);
+      });
+    }).on('error', (error) => {
+      callback(error, null);
     });
   }
 }

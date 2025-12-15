@@ -3,11 +3,6 @@ const mqtt = require('mqtt');
 // Mock mqtt module
 jest.mock('mqtt');
 
-// Mock http request
-jest.mock('request', () => {
-  return jest.fn();
-});
-
 describe('TesyHeater Platform Plugin', () => {
   let TesyHeaterPlatform;
   let mockLog;
