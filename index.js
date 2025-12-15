@@ -95,12 +95,27 @@ class TesyHeaterPlatform {
             continue;
           }
 
+          // Try to get device name from various possible fields
+          const deviceName = state.deviceName ||
+                            state.name ||
+                            deviceData.deviceName ||
+                            deviceData.name ||
+                            `Tesy Heater ${state.id}`;
+
+          this.log.debug("Device data for %s:", mac, JSON.stringify({
+            'state.deviceName': state.deviceName,
+            'state.name': state.name,
+            'deviceData.deviceName': deviceData.deviceName,
+            'deviceData.name': deviceData.name,
+            'using': deviceName
+          }));
+
           this.addDevice({
             id: state.id.toString(),
             mac: mac,
             token: deviceData.token,
             model: deviceData.model || 'cn05uv',
-            name: state.deviceName || `Tesy Heater ${state.id}`,
+            name: deviceName,
             state: state
           });
         }
