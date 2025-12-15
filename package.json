@@ -32,7 +32,6 @@
     "url": "git+https://github.com/svjakrm/homebridge-tesy-heater-mqtt.git"
   },
   "dependencies": {
-    "homebridge-http-base": "2.1.6",
     "mqtt": "^5.14.1",
     "request": "^2.65.0"
   },
