@@ -1,94 +1,113 @@
 {
   "pluginAlias": "TesyHeater",
-  "pluginType": "accessory",
+  "pluginType": "platform",
+  "singular": true,
   "schema": {
     "type": "object",
     "properties": {
       "name": {
-        "title": "Name",
+        "title": "Platform Name",
         "type": "string",
-        "minLength": 1,
+        "default": "TesyHeater",
         "required": true
       },
       "userid": {
-        "title": "User Id",
+        "title": "Tesy Cloud User ID",
         "type": "string",
-        "required": true
+        "required": true,
+        "description": "Your Tesy Cloud account user ID (numeric)"
       },
       "username": {
-        "title": "User Name",
+        "title": "Tesy Cloud Email",
         "type": "string",
-        "required": true
+        "required": true,
+        "format": "email",
+        "description": "Your Tesy Cloud account email address"
       },
       "password": {
-        "title": "Password",
+        "title": "Tesy Cloud Password",
         "type": "string",
-        "required": true
-      },
-      "device_id": {
-        "title": "Device ID",
-        "type": "string",
-        "required": true
+        "required": true,
+        "description": "Your Tesy Cloud account password"
       },
       "maxTemp": {
-        "title": "Max Temperature",
+        "title": "Maximum Temperature (°C)",
         "type": "integer",
-        "default": 30
+        "default": 30,
+        "minimum": 10,
+        "maximum": 40,
+        "description": "Maximum temperature limit for all heaters"
       },
       "minTemp": {
-        "title": "Min Temperature",
+        "title": "Minimum Temperature (°C)",
         "type": "integer",
-        "default": 10
+        "default": 10,
+        "minimum": 5,
+        "maximum": 25,
+        "description": "Minimum temperature limit for all heaters"
       },
       "pullInterval": {
-        "title": "Pull Interval",
+        "title": "Status Update Interval (ms)",
         "type": "integer",
-        "default": 10000
-      },
-      "manufacturer": {
-        "name": "Manufacturer",
-        "type": "string"
-      },
-      "model": {
-        "name": "Model",
-        "type": "string"
+        "default": 60000,
+        "minimum": 30000,
+        "maximum": 300000,
+        "description": "How often to poll device status (in milliseconds). Default: 60000 (1 minute)"
       }
     }
   },
   "layout": [
+    {
+      "type": "help",
+      "helpvalue": "<h5>Tesy Heater Platform</h5><p>This plugin will <strong>automatically discover</strong> all Tesy heaters linked to your Tesy Cloud account. Simply enter your credentials below and restart Homebridge.</p>"
+    },
     "name",
     {
       "type": "section",
-      "title": "My Tesy Cloud Settings",
+      "title": "Tesy Cloud Credentials",
       "expandable": true,
       "expanded": true,
       "items": [
-        "userid",
-        "username",
-        "password"
+        {
+          "key": "userid",
+          "type": "string",
+          "placeholder": "27356"
+        },
+        {
+          "key": "username",
+          "type": "string",
+          "placeholder": "your.email@example.com"
+        },
+        {
+          "key": "password",
+          "type": "string",
+          "placeholder": "Your password"
+        }
       ]
     },
     {
       "type": "section",
-      "title": "Device Settings",
-      "expandable": true,
-      "expanded": true,
-      "items": [
-        "device_id",
-        "maxTemp",
-        "minTemp"
-      ]
-    },
-    "pullInterval",
-    {
-      "type": "section",
-      "title": "Manufacturer Settings",
+      "title": "Advanced Settings",
       "expandable": true,
       "expanded": false,
       "items": [
-        "manufacturer",
-        "model"
+        {
+          "key": "maxTemp",
+          "type": "number"
+        },
+        {
+          "key": "minTemp",
+          "type": "number"
+        },
+        {
+          "key": "pullInterval",
+          "type": "number"
+        }
       ]
+    },
+    {
+      "type": "help",
+      "helpvalue": "<p><strong>How to find your User ID:</strong></p><ol><li>Log in to <a href='https://v4.mytesy.com' target='_blank'>Tesy Cloud</a></li><li>Check the browser URL or use the API to retrieve your user ID</li><li>Or run: <code>curl 'https://ad.mytesy.com/rest/get-my-devices?userEmail=YOUR_EMAIL&userPass=YOUR_PASSWORD&lang=en'</code></li></ol>"
     }
   ]
 }
