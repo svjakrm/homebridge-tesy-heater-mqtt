@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-12-15
+
+### Removed
+- **homebridge-http-base** dependency (unused legacy from Accessory plugin)
+  - Reduces package size by 78 transitive dependencies
+  - No impact on functionality - plugin never used this dependency
+
+### Changed
+- Updated GitHub Actions: `actions/checkout@v6`, `actions/setup-node@v6`
+- Updated codecov action to v5
+- Improved CI/CD workflows for better Node.js 24 support
+
+### Fixed
+- Codecov coverage reporting now properly configured
+
 ## [1.0.0] - 2025-12-15
 
 ### Added
@@ -80,5 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Tested Devices
 - Tesy CN 06 100 EА CLOUD AS W
 
-[Unreleased]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/compare/v0.0.1...v1.0.0
 [0.0.1]: https://github.com/svjakrm/homebridge-tesy-heater-mqtt/releases/tag/v0.0.1
