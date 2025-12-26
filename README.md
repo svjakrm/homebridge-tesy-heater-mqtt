@@ -107,27 +107,25 @@ Add this platform to your Homebridge `config.json`:
 - `username` is your email used to log in to Tesy Cloud
 - `password` is your Tesy Cloud password
 
-**To find your User ID**, run this command:
-```bash
-curl -s 'https://ad.mytesy.com/rest/get-my-devices?userEmail=YOUR_EMAIL&userPass=YOUR_PASSWORD&lang=en' | python3 -m json.tool
+**To find your User ID**:
+
+1. Log in to [Tesy Cloud](https://v4.mytesy.com) in your browser
+2. Open Developer Tools:
+   - **Chrome/Edge**: Press `F12` or right-click → **Inspect**
+   - **Firefox**: Press `F12` or right-click → **Inspect Element**
+   - **Safari**: First enable developer menu in **Safari → Settings → Advanced** → check "Show features for web developers", then press `Cmd+Option+I`
+3. Go to the **Network** tab
+4. Refresh the page (`Cmd+R` or `F5`)
+5. Find a request named `get-my-devices` or `get-my-messages` in the list
+6. Click on it and look for the **Payload**, **Headers**, or **Request** tab
+7. Find the `userID` parameter - this is your User ID
+
+Example:
+```
+GET https://ad.mytesy.com/rest/get-my-devices?userID=11111&userEmail=...
 ```
 
-The response will show your `userid` and all your devices. Example:
-```json
-{
-  "AA:BB:CC:DD:EE:FF": {
-    "deviceName": "Living Room Heater",
-    "token": "abc1234",
-    "state": {
-      "id": 123456,
-      "mac": "AA:BB:CC:DD:EE:FF",
-      "status": "on",
-      "temp": 20,
-      ...
-    }
-  }
-}
-```
+Your `userID` in this example is `11111`.
 
 **That's it!** The plugin will automatically discover all devices in your account.
 
