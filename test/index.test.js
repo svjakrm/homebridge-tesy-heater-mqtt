@@ -196,7 +196,10 @@ describe('TesyHeater Platform Plugin', () => {
           username: 'client1',
           password: '123',
           protocol: 'wss',
-          reconnectPeriod: 5000
+          reconnectPeriod: 5000,
+          keepalive: 60,
+          clean: true,
+          connectTimeout: 30000
         })
       );
     });
@@ -212,8 +215,66 @@ describe('TesyHeater Platform Plugin', () => {
       platformInstance.initMQTT();
 
       expect(mockMqttClient.on).toHaveBeenCalledWith('connect', expect.any(Function));
+      expect(mockMqttClient.on).toHaveBeenCalledWith('reconnect', expect.any(Function));
       expect(mockMqttClient.on).toHaveBeenCalledWith('error', expect.any(Function));
       expect(mockMqttClient.on).toHaveBeenCalledWith('close', expect.any(Function));
+      expect(mockMqttClient.on).toHaveBeenCalledWith('offline', expect.any(Function));
+      expect(mockMqttClient.on).toHaveBeenCalledWith('end', expect.any(Function));
+    });
+
+    test('should reset reconnecting flag on successful connect', () => {
+      platformInstance.initMQTT();
+      platformInstance.mqttReconnecting = true;
+
+      const connectHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'connect')[1];
+      connectHandler();
+
+      expect(platformInstance.mqttReconnecting).toBe(false);
+    });
+
+    test('should handle keepalive timeout error gracefully', () => {
+      platformInstance.initMQTT();
+
+      const errorHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'error')[1];
+      const keepaliveError = new Error('Keepalive timeout');
+      errorHandler(keepaliveError);
+
+      expect(mockLog.warn).toHaveBeenCalledWith('MQTT keepalive timeout - reconnecting...');
+    });
+
+    test('should handle non-keepalive errors', () => {
+      platformInstance.initMQTT();
+
+      const errorHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'error')[1];
+      const otherError = new Error('Connection failed');
+      errorHandler(otherError);
+
+      expect(mockLog.error).toHaveBeenCalledWith('MQTT Error:', 'Connection failed');
+    });
+
+    test('should set reconnecting flag on reconnect event', () => {
+      platformInstance.initMQTT();
+      platformInstance.mqttReconnecting = false;
+
+      const reconnectHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'reconnect')[1];
+      reconnectHandler();
+
+      expect(platformInstance.mqttReconnecting).toBe(true);
+      expect(mockLog.info).toHaveBeenCalledWith('Reconnecting to MQTT broker...');
+    });
+
+    test('should not spam logs on multiple reconnect attempts', () => {
+      platformInstance.initMQTT();
+
+      const reconnectHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'reconnect')[1];
+      reconnectHandler();
+      reconnectHandler();
+      reconnectHandler();
+
+      // Should only log once
+      expect(mockLog.info.mock.calls.filter(call =>
+        call[0] === 'Reconnecting to MQTT broker...'
+      ).length).toBe(1);
     });
   });
 

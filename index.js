@@ -20,6 +20,7 @@ class TesyHeaterPlatform {
     this.accessories = [];
     this.devices = {};
     this.mqttClient = null;
+    this.mqttReconnecting = false;
 
     // Configuration
     this.userid = this.config.userid;
@@ -284,10 +285,14 @@ class TesyHeaterPlatform {
       clientId: 'mqttjs_' + Math.random().toString(16).substr(2, 8),
       protocol: 'wss',
       reconnectPeriod: 5000,
+      keepalive: 60,
+      clean: true,
+      connectTimeout: 30 * 1000,
     });
 
     this.mqttClient.on('connect', () => {
       this.log.info("✓ Connected to MQTT broker");
+      this.mqttReconnecting = false;
 
       // Subscribe to all device response topics
       Object.values(this.devices).forEach(device => {
@@ -303,16 +308,32 @@ class TesyHeaterPlatform {
       });
     });
 
+    this.mqttClient.on('reconnect', () => {
+      if (!this.mqttReconnecting) {
+        this.log.info("Reconnecting to MQTT broker...");
+        this.mqttReconnecting = true;
+      }
+    });
+
     this.mqttClient.on('error', (error) => {
-      this.log.error("MQTT Error:", error);
+      // Keepalive timeout is expected and will trigger reconnect automatically
+      if (error.message && error.message.includes('Keepalive timeout')) {
+        this.log.warn("MQTT keepalive timeout - reconnecting...");
+      } else {
+        this.log.error("MQTT Error:", error.message || error);
+      }
     });
 
     this.mqttClient.on('close', () => {
-      this.log.warn("MQTT connection closed");
+      this.log.debug("MQTT connection closed");
     });
 
     this.mqttClient.on('offline', () => {
-      this.log.warn("MQTT client offline");
+      this.log.warn("MQTT client offline - will retry connection");
+    });
+
+    this.mqttClient.on('end', () => {
+      this.log.debug("MQTT client ended");
     });
 
     // Handle incoming MQTT messages for real-time status updates
