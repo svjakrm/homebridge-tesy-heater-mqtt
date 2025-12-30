@@ -28,6 +28,8 @@ class TesyHeaterPlatform {
     this.lastErrorLogTime = 0;
     this.ERROR_LOG_THROTTLE = 60000; // Log full errors once per minute
     this.isDiscovering = false; // Flag to prevent multiple simultaneous discoveries
+    this.lastDiscoveryAttempt = 0; // Timestamp of last discovery attempt
+    this.DISCOVERY_RETRY_INTERVAL = 10000; // Minimum 10 seconds between discovery attempts
 
     // Configuration
     this.userid = this.config.userid;
@@ -65,7 +67,17 @@ class TesyHeaterPlatform {
       return;
     }
 
+    // Check if enough time has passed since last attempt
+    const now = Date.now();
+    const timeSinceLastAttempt = now - this.lastDiscoveryAttempt;
+    if (timeSinceLastAttempt < this.DISCOVERY_RETRY_INTERVAL) {
+      this.log.debug("Too soon for another discovery attempt (%.1fs since last), skipping...",
+        timeSinceLastAttempt / 1000);
+      return;
+    }
+
     this.isDiscovering = true;
+    this.lastDiscoveryAttempt = now;
     this.log.info("Fetching devices from Tesy Cloud...");
 
     const queryParams = querystring.stringify({
@@ -520,7 +532,8 @@ class TesyHeaterPlatform {
 
   startPolling() {
     if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
+      this.log.debug("Polling already active, skipping start");
+      return;
     }
 
     this.log.info("Starting status polling every %d ms", this.pullInterval);
@@ -536,8 +549,11 @@ class TesyHeaterPlatform {
   updateAllDevices() {
     // If we have no devices and not currently discovering, try to discover them
     if (Object.keys(this.devices).length === 0 && !this.isDiscovering) {
-      this.log.debug("No devices available, attempting to discover...");
-      this.discoverDevices();
+      const timeSinceLastAttempt = Date.now() - this.lastDiscoveryAttempt;
+      if (timeSinceLastAttempt >= this.DISCOVERY_RETRY_INTERVAL) {
+        this.log.debug("No devices available, attempting to discover...");
+        this.discoverDevices();
+      }
       return;
     }
 
