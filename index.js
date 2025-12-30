@@ -223,6 +223,18 @@ class TesyHeaterPlatform {
       accessory: accessory,
       info: deviceInfo
     };
+
+    // Subscribe to MQTT topic if MQTT is already connected
+    if (this.mqttClient && this.mqttClient.connected) {
+      const responseTopic = `v1/${deviceInfo.mac}/response/${deviceInfo.model}/${deviceInfo.token}/#`;
+      this.mqttClient.subscribe(responseTopic, (err) => {
+        if (err) {
+          this.log.error("MQTT subscribe error for %s:", deviceInfo.name, err);
+        } else {
+          this.log.debug("✓ Subscribed to MQTT topic for %s", deviceInfo.name);
+        }
+      });
+    }
   }
 
   removeOldDevices(currentData) {
@@ -452,8 +464,9 @@ class TesyHeaterPlatform {
 
             if (heatingState !== oldState) {
               service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
-              this.log.debug("%s: [MQTT] Heating state %s -> %s",
-                device.info.name, oldState, heatingState);
+              const stateNames = ['INACTIVE', 'IDLE', 'HEATING'];
+              this.log.info("%s: [MQTT] Heating state %s -> %s",
+                device.info.name, stateNames[oldState] || oldState, stateNames[heatingState] || heatingState);
             }
           });
         }
@@ -614,7 +627,9 @@ class TesyHeaterPlatform {
       const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
       if (heatingState !== oldState) {
         service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
-        this.log.debug("%s: Heating state %s -> %s", accessory.displayName, oldState, heatingState);
+        const stateNames = ['INACTIVE', 'IDLE', 'HEATING'];
+        this.log.info("%s: Heating state %s -> %s", accessory.displayName,
+          stateNames[oldState] || oldState, stateNames[heatingState] || heatingState);
       }
     } catch(e) {
       this.log.error("Error updating %s status:", accessory.displayName, e);
