@@ -27,6 +27,7 @@ class TesyHeaterPlatform {
     this.consecutiveErrors = 0;
     this.lastErrorLogTime = 0;
     this.ERROR_LOG_THROTTLE = 60000; // Log full errors once per minute
+    this.isDiscovering = false; // Flag to prevent multiple simultaneous discoveries
 
     // Configuration
     this.userid = this.config.userid;
@@ -59,6 +60,12 @@ class TesyHeaterPlatform {
   }
 
   discoverDevices() {
+    if (this.isDiscovering) {
+      this.log.debug("Device discovery already in progress, skipping...");
+      return;
+    }
+
+    this.isDiscovering = true;
     this.log.info("Fetching devices from Tesy Cloud...");
 
     const queryParams = querystring.stringify({
@@ -73,6 +80,7 @@ class TesyHeaterPlatform {
     this._httpsGet(url, (error, body) => {
       if (error) {
         this.log.warn("Failed to fetch devices - will retry on next poll");
+        this.isDiscovering = false;
 
         // Initialize MQTT if not already done (even without devices)
         this.initMQTT();
@@ -87,6 +95,7 @@ class TesyHeaterPlatform {
 
         if (!data || Object.keys(data).length === 0) {
           this.log.warn("No devices found in your Tesy Cloud account");
+          this.isDiscovering = false;
           return;
         }
 
@@ -137,8 +146,11 @@ class TesyHeaterPlatform {
         // Start status polling
         this.startPolling();
 
+        this.isDiscovering = false;
+
       } catch(e) {
         this.log.error("Error parsing device data:", e);
+        this.isDiscovering = false;
         // Still start polling to retry
         this.startPolling();
       }
@@ -522,6 +534,13 @@ class TesyHeaterPlatform {
   }
 
   updateAllDevices() {
+    // If we have no devices and not currently discovering, try to discover them
+    if (Object.keys(this.devices).length === 0 && !this.isDiscovering) {
+      this.log.debug("No devices available, attempting to discover...");
+      this.discoverDevices();
+      return;
+    }
+
     Object.values(this.devices).forEach(device => {
       this.fetchDeviceStatus(device.info, (error, status) => {
         if (error) {
