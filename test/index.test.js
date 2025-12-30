@@ -321,22 +321,24 @@ describe('TesyHeater Platform Plugin', () => {
       });
     });
 
-    test('should return error if MQTT not connected', (done) => {
+    test('should queue command if MQTT not connected', (done) => {
       platformInstance.mqttClient.connected = false;
+      platformInstance.mqttCommandQueue = [];
 
       platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('MQTT not connected');
+        expect(error).toBeNull(); // Optimistic response
+        expect(platformInstance.mqttCommandQueue).toHaveLength(1);
         done();
       });
     });
 
-    test('should return error if MQTT client not initialized', (done) => {
+    test('should queue command if MQTT client not initialized', (done) => {
       platformInstance.mqttClient = null;
+      platformInstance.mqttCommandQueue = [];
 
       platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('MQTT not connected');
+        expect(error).toBeNull(); // Optimistic response
+        expect(platformInstance.mqttCommandQueue).toHaveLength(1);
         done();
       });
     });
@@ -1042,6 +1044,219 @@ describe('TesyHeater Platform Plugin', () => {
       messageHandler(topic, Buffer.from(message));
 
       expect(mockHeatingThresholdTemperature.updateValue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Error Recovery', () => {
+    test('should track consecutive errors', (done) => {
+      const https = require('https');
+      let errorHandler;
+
+      const mockRequest = {
+        on: jest.fn((event, handler) => {
+          if (event === 'error') {
+            errorHandler = handler;
+          }
+          return mockRequest;
+        }),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeDefined();
+        expect(platformInstance.consecutiveErrors).toBe(1);
+        done();
+      });
+
+      // Trigger error
+      if (errorHandler) {
+        errorHandler(new Error('ENOTFOUND'));
+      }
+    });
+
+    test('should reset consecutive errors on successful request', (done) => {
+      const https = require('https');
+      platformInstance.consecutiveErrors = 5;
+
+      const mockResponse = {
+        on: jest.fn((event, handler) => {
+          if (event === 'data') {
+            handler('test data');
+          } else if (event === 'end') {
+            handler();
+          }
+          return mockResponse;
+        })
+      };
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn((url, handler) => {
+        handler(mockResponse);
+        return mockRequest;
+      });
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeNull();
+        expect(platformInstance.consecutiveErrors).toBe(0);
+        expect(mockLog.info).toHaveBeenCalledWith(
+          expect.stringContaining('Connection restored after'),
+          5
+        );
+        done();
+      });
+    });
+
+    test('should throttle error logging', (done) => {
+      const https = require('https');
+      platformInstance.lastErrorLogTime = Date.now();
+
+      const mockRequest = {
+        on: jest.fn((event, handler) => {
+          if (event === 'error') {
+            handler(new Error('Test error'));
+          }
+          return mockRequest;
+        }),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', () => {
+        expect(mockLog.error).not.toHaveBeenCalled();
+        expect(mockLog.debug).toHaveBeenCalledWith(
+          expect.stringContaining('throttled'),
+          expect.any(Number)
+        );
+        done();
+      });
+    });
+
+    test('should handle API timeout', (done) => {
+      const https = require('https');
+      let timeoutCallback;
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn((timeout, handler) => {
+          timeoutCallback = handler;
+        }),
+        destroy: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeDefined();
+        expect(error.message).toContain('timeout');
+        expect(mockRequest.destroy).toHaveBeenCalled();
+        expect(platformInstance.consecutiveErrors).toBeGreaterThan(0);
+        done();
+      });
+
+      // Trigger timeout callback
+      if (timeoutCallback) {
+        timeoutCallback();
+      }
+    });
+
+    test('should queue MQTT commands when offline', () => {
+      mockMqttClient.connected = false;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      const callback = jest.fn();
+      platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, callback);
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(1);
+      expect(platformInstance.mqttCommandQueue[0]).toEqual({
+        deviceInfo,
+        command: 'onOff',
+        payload: { status: 'on' },
+        callback
+      });
+      expect(callback).toHaveBeenCalledWith(null); // Optimistic response
+    });
+
+    test('should process queued commands on reconnection', () => {
+      // Queue some commands
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      platformInstance.mqttCommandQueue = [
+        {
+          deviceInfo,
+          command: 'onOff',
+          payload: { status: 'on' },
+          callback: jest.fn()
+        },
+        {
+          deviceInfo,
+          command: 'setTemp',
+          payload: { temp: 25 },
+          callback: jest.fn()
+        }
+      ];
+
+      platformInstance.initMQTT();
+      mockMqttClient.connected = true;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const connectHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'connect')[1];
+      connectHandler();
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        expect.stringContaining('Processing'),
+        2
+      );
+      expect(platformInstance.mqttCommandQueue).toHaveLength(0);
+      expect(mockMqttClient.publish).toHaveBeenCalledTimes(2);
+    });
+
+    test('should limit command queue to 10 items', () => {
+      mockMqttClient.connected = false;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      // Fill queue to limit
+      for (let i = 0; i < 10; i++) {
+        platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, jest.fn());
+      }
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(10);
+
+      // Try to add one more
+      const failCallback = jest.fn();
+      platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, failCallback);
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(10); // Should not increase
+      expect(mockLog.warn).toHaveBeenCalledWith('MQTT command queue full - dropping command');
+      expect(failCallback).toHaveBeenCalledWith(expect.any(Error));
     });
   });
 });
