@@ -133,6 +133,10 @@ describe('TesyHeater Platform Plugin', () => {
     if (platformInstance && platformInstance.pullTimer) {
       platformInstance.pullTimer = null;
     }
+    if (platformInstance && platformInstance.pollingInterval) {
+      clearInterval(platformInstance.pollingInterval);
+      platformInstance.pollingInterval = null;
+    }
     if (platformInstance && platformInstance.mqttClient) {
       platformInstance.mqttClient = null;
     }
@@ -321,22 +325,24 @@ describe('TesyHeater Platform Plugin', () => {
       });
     });
 
-    test('should return error if MQTT not connected', (done) => {
+    test('should queue command if MQTT not connected', (done) => {
       platformInstance.mqttClient.connected = false;
+      platformInstance.mqttCommandQueue = [];
 
       platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('MQTT not connected');
+        expect(error).toBeNull(); // Optimistic response
+        expect(platformInstance.mqttCommandQueue).toHaveLength(1);
         done();
       });
     });
 
-    test('should return error if MQTT client not initialized', (done) => {
+    test('should queue command if MQTT client not initialized', (done) => {
       platformInstance.mqttClient = null;
+      platformInstance.mqttCommandQueue = [];
 
       platformInstance.sendMQTTCommand(mockDeviceInfo, 'onOff', { status: 'on' }, (error) => {
-        expect(error).toBeInstanceOf(Error);
-        expect(error.message).toBe('MQTT not connected');
+        expect(error).toBeNull(); // Optimistic response
+        expect(platformInstance.mqttCommandQueue).toHaveLength(1);
         done();
       });
     });
@@ -1042,6 +1048,359 @@ describe('TesyHeater Platform Plugin', () => {
       messageHandler(topic, Buffer.from(message));
 
       expect(mockHeatingThresholdTemperature.updateValue).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Error Recovery', () => {
+    test('should track consecutive errors', (done) => {
+      const https = require('https');
+      let errorHandler;
+
+      const mockRequest = {
+        on: jest.fn((event, handler) => {
+          if (event === 'error') {
+            errorHandler = handler;
+          }
+          return mockRequest;
+        }),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeDefined();
+        expect(platformInstance.consecutiveErrors).toBe(1);
+        done();
+      });
+
+      // Trigger error
+      if (errorHandler) {
+        errorHandler(new Error('ENOTFOUND'));
+      }
+    });
+
+    test('should reset consecutive errors on successful request', (done) => {
+      const https = require('https');
+      platformInstance.consecutiveErrors = 5;
+
+      const mockResponse = {
+        on: jest.fn((event, handler) => {
+          if (event === 'data') {
+            handler('test data');
+          } else if (event === 'end') {
+            handler();
+          }
+          return mockResponse;
+        })
+      };
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn((url, handler) => {
+        handler(mockResponse);
+        return mockRequest;
+      });
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeNull();
+        expect(platformInstance.consecutiveErrors).toBe(0);
+        expect(mockLog.info).toHaveBeenCalledWith(
+          expect.stringContaining('Connection restored after'),
+          5
+        );
+        done();
+      });
+    });
+
+    test('should throttle error logging', (done) => {
+      const https = require('https');
+      platformInstance.lastErrorLogTime = Date.now();
+
+      const mockRequest = {
+        on: jest.fn((event, handler) => {
+          if (event === 'error') {
+            handler(new Error('Test error'));
+          }
+          return mockRequest;
+        }),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', () => {
+        expect(mockLog.error).not.toHaveBeenCalled();
+        expect(mockLog.debug).toHaveBeenCalledWith(
+          expect.stringContaining('throttled'),
+          expect.any(Number)
+        );
+        done();
+      });
+    });
+
+    test('should handle API timeout', (done) => {
+      const https = require('https');
+      let timeoutCallback;
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn((timeout, handler) => {
+          timeoutCallback = handler;
+        }),
+        destroy: jest.fn()
+      };
+
+      https.get = jest.fn(() => mockRequest);
+
+      platformInstance._httpsGet('https://test.com', (error) => {
+        expect(error).toBeDefined();
+        expect(error.message).toContain('timeout');
+        expect(mockRequest.destroy).toHaveBeenCalled();
+        expect(platformInstance.consecutiveErrors).toBeGreaterThan(0);
+        done();
+      });
+
+      // Trigger timeout callback
+      if (timeoutCallback) {
+        timeoutCallback();
+      }
+    });
+
+    test('should queue MQTT commands when offline', () => {
+      mockMqttClient.connected = false;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      const callback = jest.fn();
+      platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, callback);
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(1);
+      expect(platformInstance.mqttCommandQueue[0]).toEqual({
+        deviceInfo,
+        command: 'onOff',
+        payload: { status: 'on' },
+        callback
+      });
+      expect(callback).toHaveBeenCalledWith(null); // Optimistic response
+    });
+
+    test('should process queued commands on reconnection', () => {
+      // Queue some commands
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      platformInstance.mqttCommandQueue = [
+        {
+          deviceInfo,
+          command: 'onOff',
+          payload: { status: 'on' },
+          callback: jest.fn()
+        },
+        {
+          deviceInfo,
+          command: 'setTemp',
+          payload: { temp: 25 },
+          callback: jest.fn()
+        }
+      ];
+
+      platformInstance.initMQTT();
+      mockMqttClient.connected = true;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const connectHandler = mockMqttClient.on.mock.calls.find(call => call[0] === 'connect')[1];
+      connectHandler();
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        expect.stringContaining('Processing'),
+        2
+      );
+      expect(platformInstance.mqttCommandQueue).toHaveLength(0);
+      expect(mockMqttClient.publish).toHaveBeenCalledTimes(2);
+    });
+
+    test('should limit command queue to 10 items', () => {
+      mockMqttClient.connected = false;
+      platformInstance.mqttClient = mockMqttClient;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater'
+      };
+
+      // Fill queue to limit
+      for (let i = 0; i < 10; i++) {
+        platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, jest.fn());
+      }
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(10);
+
+      // Try to add one more
+      const failCallback = jest.fn();
+      platformInstance.sendMQTTCommand(deviceInfo, 'onOff', { status: 'on' }, failCallback);
+
+      expect(platformInstance.mqttCommandQueue).toHaveLength(10); // Should not increase
+      expect(mockLog.warn).toHaveBeenCalledWith('MQTT command queue full - dropping command');
+      expect(failCallback).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  describe('Device Discovery Rate Limiting', () => {
+    test('should enforce minimum interval between discovery attempts', () => {
+      platformInstance.lastDiscoveryAttempt = Date.now();
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Too soon for another discovery attempt'),
+        expect.any(Number)
+      );
+    });
+
+    test('should allow discovery after interval has passed', () => {
+      platformInstance.lastDiscoveryAttempt = Date.now() - 11000; // 11 seconds ago
+
+      const https = require('https');
+      const mockResponse = {
+        on: jest.fn((event, handler) => {
+          if (event === 'data') {
+            handler('{"testmac": {"state": {"id": 123}}}');
+          } else if (event === 'end') {
+            handler();
+          }
+          return mockResponse;
+        })
+      };
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn((url, handler) => {
+        handler(mockResponse);
+        return mockRequest;
+      });
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.info).toHaveBeenCalledWith('Fetching devices from Tesy Cloud...');
+    });
+
+    test('should skip discovery if already in progress', () => {
+      platformInstance.isDiscovering = true;
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.debug).toHaveBeenCalledWith('Device discovery already in progress, skipping...');
+    });
+  });
+
+  describe('MQTT Subscription on Device Add', () => {
+    test('should subscribe to MQTT topic when device is added and MQTT is connected', () => {
+      platformInstance.mqttClient = mockMqttClient;
+      mockMqttClient.connected = true;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater',
+        state: {
+          id: 123,
+          status: 'off',
+          temp: 20,
+          current_temp: 18
+        }
+      };
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
+        'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/#',
+        expect.any(Function)
+      );
+    });
+
+    test('should not subscribe if MQTT is not connected', () => {
+      platformInstance.mqttClient = mockMqttClient;
+      mockMqttClient.connected = false;
+
+      const deviceInfo = {
+        id: '124',
+        mac: '1C:9D:C2:36:AA:09',
+        token: 'testtoken2',
+        model: 'cn05uv',
+        name: 'Test Heater 2',
+        state: {
+          id: 124,
+          status: 'off',
+          temp: 20,
+          current_temp: 18
+        }
+      };
+
+      // Clear previous calls
+      mockMqttClient.subscribe.mockClear();
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(mockMqttClient.subscribe).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Polling Control', () => {
+    afterEach(() => {
+      // Clean up any intervals
+      if (platformInstance.pollingInterval) {
+        clearInterval(platformInstance.pollingInterval);
+        platformInstance.pollingInterval = null;
+      }
+    });
+
+    test('should not start multiple polling intervals', () => {
+      // Use a mock interval instead of a real one
+      const mockInterval = {};
+      platformInstance.pollingInterval = mockInterval;
+
+      platformInstance.startPolling();
+
+      expect(mockLog.debug).toHaveBeenCalledWith('Polling already active, skipping start');
+      expect(platformInstance.pollingInterval).toBe(mockInterval); // Should not change
+    });
+
+    test('should trigger discovery when updateAllDevices has no devices', () => {
+      platformInstance.devices = {};
+      platformInstance.isDiscovering = false;
+      platformInstance.lastDiscoveryAttempt = 0;
+
+      const discoverSpy = jest.spyOn(platformInstance, 'discoverDevices');
+
+      platformInstance.updateAllDevices();
+
+      expect(discoverSpy).toHaveBeenCalled();
+
+      discoverSpy.mockRestore();
     });
   });
 });

@@ -22,6 +22,15 @@ class TesyHeaterPlatform {
     this.mqttClient = null;
     this.mqttReconnecting = false;
 
+    // Error tracking and command queue
+    this.mqttCommandQueue = [];
+    this.consecutiveErrors = 0;
+    this.lastErrorLogTime = 0;
+    this.ERROR_LOG_THROTTLE = 60000; // Log full errors once per minute
+    this.isDiscovering = false; // Flag to prevent multiple simultaneous discoveries
+    this.lastDiscoveryAttempt = 0; // Timestamp of last discovery attempt
+    this.DISCOVERY_RETRY_INTERVAL = 10000; // Minimum 10 seconds between discovery attempts
+
     // Configuration
     this.userid = this.config.userid;
     this.username = this.config.username;
@@ -53,6 +62,22 @@ class TesyHeaterPlatform {
   }
 
   discoverDevices() {
+    if (this.isDiscovering) {
+      this.log.debug("Device discovery already in progress, skipping...");
+      return;
+    }
+
+    // Check if enough time has passed since last attempt
+    const now = Date.now();
+    const timeSinceLastAttempt = now - this.lastDiscoveryAttempt;
+    if (timeSinceLastAttempt < this.DISCOVERY_RETRY_INTERVAL) {
+      this.log.debug("Too soon for another discovery attempt (%.1fs since last), skipping...",
+        timeSinceLastAttempt / 1000);
+      return;
+    }
+
+    this.isDiscovering = true;
+    this.lastDiscoveryAttempt = now;
     this.log.info("Fetching devices from Tesy Cloud...");
 
     const queryParams = querystring.stringify({
@@ -66,7 +91,14 @@ class TesyHeaterPlatform {
 
     this._httpsGet(url, (error, body) => {
       if (error) {
-        this.log.error("API Error:", error);
+        this.log.warn("Failed to fetch devices - will retry on next poll");
+        this.isDiscovering = false;
+
+        // Initialize MQTT if not already done (even without devices)
+        this.initMQTT();
+
+        // Start polling so we can retry
+        this.startPolling();
         return;
       }
 
@@ -75,6 +107,7 @@ class TesyHeaterPlatform {
 
         if (!data || Object.keys(data).length === 0) {
           this.log.warn("No devices found in your Tesy Cloud account");
+          this.isDiscovering = false;
           return;
         }
 
@@ -125,8 +158,13 @@ class TesyHeaterPlatform {
         // Start status polling
         this.startPolling();
 
+        this.isDiscovering = false;
+
       } catch(e) {
         this.log.error("Error parsing device data:", e);
+        this.isDiscovering = false;
+        // Still start polling to retry
+        this.startPolling();
       }
     });
   }
@@ -185,6 +223,18 @@ class TesyHeaterPlatform {
       accessory: accessory,
       info: deviceInfo
     };
+
+    // Subscribe to MQTT topic if MQTT is already connected
+    if (this.mqttClient && this.mqttClient.connected) {
+      const responseTopic = `v1/${deviceInfo.mac}/response/${deviceInfo.model}/${deviceInfo.token}/#`;
+      this.mqttClient.subscribe(responseTopic, (err) => {
+        if (err) {
+          this.log.error("MQTT subscribe error for %s:", deviceInfo.name, err);
+        } else {
+          this.log.debug("✓ Subscribed to MQTT topic for %s", deviceInfo.name);
+        }
+      });
+    }
   }
 
   removeOldDevices(currentData) {
@@ -293,6 +343,17 @@ class TesyHeaterPlatform {
     this.mqttClient.on('connect', () => {
       this.log.info("✓ Connected to MQTT broker");
       this.mqttReconnecting = false;
+
+      // Process queued commands
+      if (this.mqttCommandQueue.length > 0) {
+        this.log.info("Processing %d queued MQTT command(s)...", this.mqttCommandQueue.length);
+        const queue = [...this.mqttCommandQueue];
+        this.mqttCommandQueue = [];
+
+        queue.forEach(cmd => {
+          this.sendMQTTCommand(cmd.deviceInfo, cmd.command, cmd.payload, cmd.callback);
+        });
+      }
 
       // Subscribe to all device response topics
       Object.values(this.devices).forEach(device => {
@@ -403,8 +464,9 @@ class TesyHeaterPlatform {
 
             if (heatingState !== oldState) {
               service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
-              this.log.debug("%s: [MQTT] Heating state %s -> %s",
-                device.info.name, oldState, heatingState);
+              const stateNames = ['INACTIVE', 'IDLE', 'HEATING'];
+              this.log.info("%s: [MQTT] Heating state %s -> %s",
+                device.info.name, stateNames[oldState] || oldState, stateNames[heatingState] || heatingState);
             }
           });
         }
@@ -416,8 +478,21 @@ class TesyHeaterPlatform {
 
   sendMQTTCommand(deviceInfo, command, payload, callback) {
     if (!this.mqttClient || !this.mqttClient.connected) {
-      this.log.error("MQTT not connected");
-      return callback(new Error("MQTT not connected"));
+      // Queue command for retry when reconnected
+      if (this.mqttCommandQueue.length < 10) {
+        this.log.debug("MQTT offline - queueing command %s for %s", command, deviceInfo.name);
+        this.mqttCommandQueue.push({
+          deviceInfo,
+          command,
+          payload,
+          callback
+        });
+        callback(null); // Optimistic response
+      } else {
+        this.log.warn("MQTT command queue full - dropping command");
+        callback(new Error("MQTT not connected and queue full"));
+      }
+      return;
     }
 
     const topic = `v1/${deviceInfo.mac}/request/${deviceInfo.model}/${deviceInfo.token}/${command}`;
@@ -470,7 +545,8 @@ class TesyHeaterPlatform {
 
   startPolling() {
     if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
+      this.log.debug("Polling already active, skipping start");
+      return;
     }
 
     this.log.info("Starting status polling every %d ms", this.pullInterval);
@@ -484,10 +560,21 @@ class TesyHeaterPlatform {
   }
 
   updateAllDevices() {
+    // If we have no devices and not currently discovering, try to discover them
+    if (Object.keys(this.devices).length === 0 && !this.isDiscovering) {
+      const timeSinceLastAttempt = Date.now() - this.lastDiscoveryAttempt;
+      if (timeSinceLastAttempt >= this.DISCOVERY_RETRY_INTERVAL) {
+        this.log.debug("No devices available, attempting to discover...");
+        this.discoverDevices();
+      }
+      return;
+    }
+
     Object.values(this.devices).forEach(device => {
       this.fetchDeviceStatus(device.info, (error, status) => {
         if (error) {
-          this.log.error("Error fetching status for %s:", device.info.name, error);
+          // Errors are already logged with throttling in _httpsGet
+          this.log.debug("Skipping status update for %s due to connection error", device.info.name);
           return;
         }
 
@@ -540,7 +627,9 @@ class TesyHeaterPlatform {
       const oldState = service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).value;
       if (heatingState !== oldState) {
         service.getCharacteristic(Characteristic.CurrentHeaterCoolerState).updateValue(heatingState);
-        this.log.debug("%s: Heating state %s -> %s", accessory.displayName, oldState, heatingState);
+        const stateNames = ['INACTIVE', 'IDLE', 'HEATING'];
+        this.log.info("%s: Heating state %s -> %s", accessory.displayName,
+          stateNames[oldState] || oldState, stateNames[heatingState] || heatingState);
       }
     } catch(e) {
       this.log.error("Error updating %s status:", accessory.displayName, e);
@@ -670,7 +759,9 @@ class TesyHeaterPlatform {
 
   // Helper method for HTTPS GET requests
   _httpsGet(url, callback) {
-    https.get(url, (response) => {
+    const timeout = 10000; // 10 seconds
+
+    const request = https.get(url, (response) => {
       let data = '';
 
       response.on('data', (chunk) => {
@@ -678,10 +769,44 @@ class TesyHeaterPlatform {
       });
 
       response.on('end', () => {
+        // Success - reset error counter
+        if (this.consecutiveErrors > 0) {
+          this.log.info("✓ Connection restored after %d consecutive error(s)", this.consecutiveErrors);
+          this.consecutiveErrors = 0;
+        }
         callback(null, data);
       });
     }).on('error', (error) => {
+      this.consecutiveErrors++;
+
+      // Smart logging: only log full error details once per minute
+      const now = Date.now();
+      if (now - this.lastErrorLogTime > this.ERROR_LOG_THROTTLE) {
+        this.log.error("API Error (attempt %d): %s", this.consecutiveErrors, error.message);
+        this.lastErrorLogTime = now;
+      } else {
+        this.log.debug("API Error (attempt %d, throttled)", this.consecutiveErrors);
+      }
+
       callback(error, null);
+    });
+
+    // Set timeout
+    request.setTimeout(timeout, () => {
+      request.destroy();
+      const timeoutError = new Error(`Request timeout after ${timeout}ms`);
+      this.consecutiveErrors++;
+
+      // Log timeout with throttling
+      const now = Date.now();
+      if (now - this.lastErrorLogTime > this.ERROR_LOG_THROTTLE) {
+        this.log.error("API Timeout (attempt %d): %s", this.consecutiveErrors, timeoutError.message);
+        this.lastErrorLogTime = now;
+      } else {
+        this.log.debug("API Timeout (attempt %d, throttled)", this.consecutiveErrors);
+      }
+
+      callback(timeoutError, null);
     });
   }
 }
