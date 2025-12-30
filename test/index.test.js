@@ -133,6 +133,10 @@ describe('TesyHeater Platform Plugin', () => {
     if (platformInstance && platformInstance.pullTimer) {
       platformInstance.pullTimer = null;
     }
+    if (platformInstance && platformInstance.pollingInterval) {
+      clearInterval(platformInstance.pollingInterval);
+      platformInstance.pollingInterval = null;
+    }
     if (platformInstance && platformInstance.mqttClient) {
       platformInstance.mqttClient = null;
     }
@@ -1257,6 +1261,146 @@ describe('TesyHeater Platform Plugin', () => {
       expect(platformInstance.mqttCommandQueue).toHaveLength(10); // Should not increase
       expect(mockLog.warn).toHaveBeenCalledWith('MQTT command queue full - dropping command');
       expect(failCallback).toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
+  describe('Device Discovery Rate Limiting', () => {
+    test('should enforce minimum interval between discovery attempts', () => {
+      platformInstance.lastDiscoveryAttempt = Date.now();
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.debug).toHaveBeenCalledWith(
+        expect.stringContaining('Too soon for another discovery attempt'),
+        expect.any(Number)
+      );
+    });
+
+    test('should allow discovery after interval has passed', () => {
+      platformInstance.lastDiscoveryAttempt = Date.now() - 11000; // 11 seconds ago
+
+      const https = require('https');
+      const mockResponse = {
+        on: jest.fn((event, handler) => {
+          if (event === 'data') {
+            handler('{"testmac": {"state": {"id": 123}}}');
+          } else if (event === 'end') {
+            handler();
+          }
+          return mockResponse;
+        })
+      };
+
+      const mockRequest = {
+        on: jest.fn(() => mockRequest),
+        setTimeout: jest.fn()
+      };
+
+      https.get = jest.fn((url, handler) => {
+        handler(mockResponse);
+        return mockRequest;
+      });
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.info).toHaveBeenCalledWith('Fetching devices from Tesy Cloud...');
+    });
+
+    test('should skip discovery if already in progress', () => {
+      platformInstance.isDiscovering = true;
+
+      platformInstance.discoverDevices();
+
+      expect(mockLog.debug).toHaveBeenCalledWith('Device discovery already in progress, skipping...');
+    });
+  });
+
+  describe('MQTT Subscription on Device Add', () => {
+    test('should subscribe to MQTT topic when device is added and MQTT is connected', () => {
+      platformInstance.mqttClient = mockMqttClient;
+      mockMqttClient.connected = true;
+
+      const deviceInfo = {
+        id: '123',
+        mac: '1C:9D:C2:36:AA:08',
+        token: 'testtoken',
+        model: 'cn05uv',
+        name: 'Test Heater',
+        state: {
+          id: 123,
+          status: 'off',
+          temp: 20,
+          current_temp: 18
+        }
+      };
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
+        'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/#',
+        expect.any(Function)
+      );
+    });
+
+    test('should not subscribe if MQTT is not connected', () => {
+      platformInstance.mqttClient = mockMqttClient;
+      mockMqttClient.connected = false;
+
+      const deviceInfo = {
+        id: '124',
+        mac: '1C:9D:C2:36:AA:09',
+        token: 'testtoken2',
+        model: 'cn05uv',
+        name: 'Test Heater 2',
+        state: {
+          id: 124,
+          status: 'off',
+          temp: 20,
+          current_temp: 18
+        }
+      };
+
+      // Clear previous calls
+      mockMqttClient.subscribe.mockClear();
+
+      platformInstance.addDevice(deviceInfo);
+
+      expect(mockMqttClient.subscribe).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Polling Control', () => {
+    afterEach(() => {
+      // Clean up any intervals
+      if (platformInstance.pollingInterval) {
+        clearInterval(platformInstance.pollingInterval);
+        platformInstance.pollingInterval = null;
+      }
+    });
+
+    test('should not start multiple polling intervals', () => {
+      // Use a mock interval instead of a real one
+      const mockInterval = {};
+      platformInstance.pollingInterval = mockInterval;
+
+      platformInstance.startPolling();
+
+      expect(mockLog.debug).toHaveBeenCalledWith('Polling already active, skipping start');
+      expect(platformInstance.pollingInterval).toBe(mockInterval); // Should not change
+    });
+
+    test('should trigger discovery when updateAllDevices has no devices', () => {
+      platformInstance.devices = {};
+      platformInstance.isDiscovering = false;
+      platformInstance.lastDiscoveryAttempt = 0;
+
+      const discoverSpy = jest.spyOn(platformInstance, 'discoverDevices');
+
+      platformInstance.updateAllDevices();
+
+      expect(discoverSpy).toHaveBeenCalled();
+
+      discoverSpy.mockRestore();
     });
   });
 });
