@@ -1,5 +1,6 @@
 # homebridge-tesy-heater-mqtt
 
+[![verified-by-homebridge](https://img.shields.io/badge/_-verified-blueviolet?color=%23491F59&style=flat&logoColor=%23FFFFFF&logo=homebridge)](https://github.com/homebridge/homebridge/wiki/Verified-Plugins)
 [![Test](https://github.com/svjakrm/homebridge-tesy-heater-mqtt/actions/workflows/test.yml/badge.svg)](https://github.com/svjakrm/homebridge-tesy-heater-mqtt/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/svjakrm/homebridge-tesy-heater-mqtt/branch/main/graph/badge.svg)](https://codecov.io/gh/svjakrm/homebridge-tesy-heater-mqtt)
 [![npm version](https://badge.fury.io/js/homebridge-tesy-heater-mqtt.svg)](https://badge.fury.io/js/homebridge-tesy-heater-mqtt)
