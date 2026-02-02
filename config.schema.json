@@ -68,7 +68,7 @@
         {
           "key": "userid",
           "type": "string",
-          "placeholder": "27356"
+          "placeholder": "11222"
         },
         {
           "key": "username",
@@ -104,7 +104,7 @@
     },
     {
       "type": "help",
-      "helpvalue": "<p><strong>How to find your User ID:</strong></p><ol><li>Log in to <a href='https://v4.mytesy.com' target='_blank'>Tesy Cloud</a> in your browser</li><li>Open Developer Tools (<kbd>F12</kbd> or right-click → Inspect)</li><li>Go to the <strong>Network</strong> tab and refresh the page</li><li>Find request named <code>get-my-devices</code> or <code>get-my-messages</code></li><li>Click on it and look for <code>userID</code> parameter in the request URL or Payload tab</li><li>Example: <code>userID=27356</code> - your User ID is <strong>27356</strong></li></ol>"
+      "helpvalue": "<p><strong>How to find your User ID:</strong></p><ol><li>Log in to <a href='https://v4.mytesy.com' target='_blank'>Tesy Cloud</a> in your browser</li><li>Open Developer Tools (<kbd>F12</kbd> or right-click → Inspect)</li><li>Go to the <strong>Network</strong> tab and refresh the page</li><li>Find request named <code>get-my-devices</code> or <code>get-my-messages</code></li><li>Click on it and look for <code>userID</code> parameter in the request URL or Payload tab</li><li>Example: <code>userID=11222</code> - your User ID is <strong>11222</strong></li></ol>"
     }
   ]
 }
