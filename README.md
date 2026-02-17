@@ -15,6 +15,7 @@ This plugin allows you to control your Tesy smart heaters through Apple HomeKit 
 **Features:**
 - **Automatic device discovery** - finds all Tesy heaters in your account
 - **Multi-device support** - manages multiple heaters with one configuration
+- **Temperature sensor correction** - automatic calibration with power loss recovery
 - Turn heater on/off
 - Set target temperature
 - View current temperature
@@ -99,6 +100,27 @@ Add this platform to your Homebridge `config.json`:
 | `maxTemp` | No | Maximum temperature (°C) | `30` |
 | `minTemp` | No | Minimum temperature (°C) | `10` |
 | `pullInterval` | No | Status update interval (ms) | `60000` |
+| `tempCorrection` | No | Temperature sensor correction (°C, -4 to +4) | `0` |
+
+### Temperature Correction
+
+The plugin supports automatic temperature sensor correction (calibration). This is useful when your device's temperature sensor reads consistently higher or lower than the actual room temperature.
+
+**How it works:**
+- Configure the correction offset in °C (integer from -4 to +4)
+- Plugin automatically applies correction when device is discovered
+- Plugin monitors device and restores correction after power loss
+- Correction is checked every status update interval (default: 60 seconds)
+
+**Example:**
+If your heater shows 22°C but actual room temperature is 20°C, add this to your config:
+```json
+"tempCorrection": -2
+```
+
+The device will adjust its readings by -2°C internally.
+
+**Note:** Leave at `0` (default) or omit the field if your sensor is accurate. Valid range is -4 to +4 (integers only).
 
 ### How to Get Configuration Values
 

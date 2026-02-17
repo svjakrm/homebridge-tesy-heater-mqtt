@@ -1403,4 +1403,198 @@ describe('TesyHeater Platform Plugin', () => {
       discoverSpy.mockRestore();
     });
   });
+
+  describe('Temperature Correction', () => {
+    const mockDeviceInfo = {
+      id: '123456',
+      mac: 'AA:BB:CC:DD:EE:FF',
+      token: 'abc1234',
+      model: 'cn05uv',
+      name: 'Test Heater'
+    };
+
+    beforeEach(() => {
+      platformInstance.mqttClient = mockMqttClient;
+      mockMqttClient.publish.mockClear();
+    });
+
+    test('should send correction command with correct payload', (done) => {
+      mockMqttClient.publish.mockImplementation((topic, message, callback) => {
+        const payload = JSON.parse(message);
+        expect(payload.temp).toBe("2");  // Must be string!
+        expect(topic).toContain('/setTCorrection');
+        callback(null);
+      });
+
+      platformInstance.setTempCorrection(mockDeviceInfo, 2, (error) => {
+        expect(error).toBeNull();
+        done();
+      });
+    });
+
+    test('should clamp correction to minimum (-4°C)', (done) => {
+      mockMqttClient.publish.mockImplementation((topic, message, callback) => {
+        const payload = JSON.parse(message);
+        expect(payload.temp).toBe("-4");
+        callback(null);
+      });
+
+      platformInstance.setTempCorrection(mockDeviceInfo, -15, (error) => {
+        expect(error).toBeNull();
+        done();
+      });
+    });
+
+    test('should clamp correction to maximum (+4°C)', (done) => {
+      mockMqttClient.publish.mockImplementation((topic, message, callback) => {
+        const payload = JSON.parse(message);
+        expect(payload.temp).toBe("4");
+        callback(null);
+      });
+
+      platformInstance.setTempCorrection(mockDeviceInfo, 15, (error) => {
+        expect(error).toBeNull();
+        done();
+      });
+    });
+
+    test('should handle zero correction', (done) => {
+      mockMqttClient.publish.mockImplementation((topic, message, callback) => {
+        const payload = JSON.parse(message);
+        expect(payload.temp).toBe("0");
+        callback(null);
+      });
+
+      platformInstance.setTempCorrection(mockDeviceInfo, 0, (error) => {
+        expect(error).toBeNull();
+        done();
+      });
+    });
+
+    test('should handle MQTT publish error', (done) => {
+      mockMqttClient.publish.mockImplementation((topic, message, callback) => {
+        callback(new Error('MQTT error'));
+      });
+
+      platformInstance.setTempCorrection(mockDeviceInfo, 2, (error) => {
+        expect(error).toBeInstanceOf(Error);
+        done();
+      });
+    });
+
+    test('should sync correction during status update if different', () => {
+      platformInstance.tempCorrection = 3;
+
+      const mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-123');
+      mockAccessory.context.deviceInfo = mockDeviceInfo;
+
+      const mockService = {
+        getCharacteristic: jest.fn(() => ({
+          value: 20,
+          updateValue: jest.fn().mockReturnThis()
+        }))
+      };
+      mockAccessory.getService = jest.fn(() => mockService);
+
+      const status = {
+        status: 'on',
+        temp: 20,
+        current_temp: 20,
+        heating: 'off',
+        TCorrection: 0  // Device reset to 0
+      };
+
+      const setSpy = jest.spyOn(platformInstance, 'setTempCorrection');
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(setSpy).toHaveBeenCalledWith(mockDeviceInfo, 3, expect.any(Function));
+
+      setSpy.mockRestore();
+    });
+
+    test('should not sync correction if already matching', () => {
+      platformInstance.tempCorrection = 2;
+
+      const mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-123');
+      mockAccessory.context.deviceInfo = mockDeviceInfo;
+
+      const mockService = {
+        getCharacteristic: jest.fn(() => ({
+          value: 20,
+          updateValue: jest.fn().mockReturnThis()
+        }))
+      };
+      mockAccessory.getService = jest.fn(() => mockService);
+
+      const status = {
+        status: 'on',
+        temp: 20,
+        current_temp: 20,
+        heating: 'off',
+        TCorrection: 2  // Already correct
+      };
+
+      const setSpy = jest.spyOn(platformInstance, 'setTempCorrection');
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(setSpy).not.toHaveBeenCalled();
+
+      setSpy.mockRestore();
+    });
+
+    test('should not sync if configured correction is zero', () => {
+      platformInstance.tempCorrection = 0;
+
+      const mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-123');
+      mockAccessory.context.deviceInfo = mockDeviceInfo;
+
+      const mockService = {
+        getCharacteristic: jest.fn(() => ({
+          value: 20,
+          updateValue: jest.fn().mockReturnThis()
+        }))
+      };
+      mockAccessory.getService = jest.fn(() => mockService);
+
+      const status = {
+        status: 'on',
+        temp: 20,
+        current_temp: 20,
+        heating: 'off',
+        TCorrection: 5
+      };
+
+      const setSpy = jest.spyOn(platformInstance, 'setTempCorrection');
+
+      platformInstance.updateAccessoryStatus(mockAccessory, status);
+
+      expect(setSpy).not.toHaveBeenCalled();
+
+      setSpy.mockRestore();
+    });
+
+    test('should load tempCorrection from config and parse as integer', () => {
+      const configWithCorrection = {
+        ...mockConfig,
+        tempCorrection: 2.7  // Non-integer value
+      };
+      const instance = new TesyHeaterPlatform(mockLog, configWithCorrection, mockApi);
+      expect(instance.tempCorrection).toBe(2);  // Should be parsed to integer
+    });
+
+    test('should warn and reset to 0 if out of range', () => {
+      const configInvalid = {
+        ...mockConfig,
+        tempCorrection: 10  // Out of range
+      };
+      const instance = new TesyHeaterPlatform(mockLog, configInvalid, mockApi);
+
+      expect(instance.tempCorrection).toBe(0);
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining('out of range')
+      );
+    });
+  });
 });

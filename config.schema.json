@@ -49,6 +49,14 @@
         "minimum": 30000,
         "maximum": 300000,
         "description": "How often to poll device status (in milliseconds). Default: 60000 (1 minute)"
+      },
+      "tempCorrection": {
+        "title": "Temperature Correction (°C)",
+        "type": "integer",
+        "default": 0,
+        "minimum": -4,
+        "maximum": 4,
+        "description": "Temperature sensor correction offset in °C (integer from -4 to +4). Automatically restored after power loss."
       }
     },
     "required": ["name", "userid", "username", "password"]
@@ -98,6 +106,10 @@
         },
         {
           "key": "pullInterval",
+          "type": "number"
+        },
+        {
+          "key": "tempCorrection",
           "type": "number"
         }
       ]
