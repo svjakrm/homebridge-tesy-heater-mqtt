@@ -1,7 +1,7 @@
 {
   "name": "homebridge-tesy-heater-mqtt",
   "displayName": "Homebridge Tesy Heater MQTT",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Tesy heater plugin for Homebridge using MQTT control (API v4). Supports on/off control and temperature adjustment.",
   "license": "MIT",
   "keywords": [
