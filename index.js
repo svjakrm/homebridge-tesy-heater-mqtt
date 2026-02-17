@@ -39,6 +39,16 @@ class TesyHeaterPlatform {
     this.maxTemp = this.config.maxTemp || 30;
     this.minTemp = this.config.minTemp || 10;
 
+    // Temperature correction configuration (integer from -4 to +4)
+    this.tempCorrection = this.config.tempCorrection !== undefined ?
+      parseInt(this.config.tempCorrection) : 0;
+
+    // Validate range
+    if (this.tempCorrection < -4 || this.tempCorrection > 4) {
+      this.log.warn("Temperature correction out of range (-4 to +4), using 0");
+      this.tempCorrection = 0;
+    }
+
     if (!this.userid || !this.username || !this.password) {
       this.log.error("Missing required credentials (userid, username, password) in config!");
       return;
@@ -234,6 +244,21 @@ class TesyHeaterPlatform {
           this.log.debug("✓ Subscribed to MQTT topic for %s", deviceInfo.name);
         }
       });
+
+      // Set initial temperature correction if configured
+      if (this.tempCorrection !== 0) {
+        // Wait a moment for device to be fully initialized
+        setTimeout(() => {
+          this.setTempCorrection(deviceInfo, this.tempCorrection, (error) => {
+            if (error) {
+              this.log.warn("%s: Failed to set initial temperature correction", deviceInfo.name);
+            } else {
+              this.log.info("%s: ✓ Initial temperature correction set to %s°C",
+                deviceInfo.name, this.tempCorrection);
+            }
+          });
+        }, 2000); // 2-second delay for device initialization
+      }
     }
   }
 
@@ -631,6 +656,29 @@ class TesyHeaterPlatform {
         this.log.info("%s: Heating state %s -> %s", accessory.displayName,
           stateNames[oldState] || oldState, stateNames[heatingState] || heatingState);
       }
+
+      // Check and sync temperature correction
+      // Only sync if user configured a non-zero correction
+      if (this.tempCorrection !== 0) {
+        const deviceCorrection = parseInt(status.TCorrection) || 0;  // TCorrection from API
+
+        // Check if device correction differs from configured value
+        if (deviceCorrection !== this.tempCorrection) {
+          this.log.debug("%s: Device correction (%s°C) differs from config (%s°C), syncing...",
+            accessory.displayName, deviceCorrection, this.tempCorrection);
+
+          const deviceInfo = accessory.context.deviceInfo;
+          this.setTempCorrection(deviceInfo, this.tempCorrection, (error) => {
+            if (error) {
+              this.log.warn("%s: Failed to sync temperature correction: %s",
+                accessory.displayName, error.message);
+            } else {
+              this.log.info("%s: ✓ Temperature correction synced to %s°C",
+                accessory.displayName, this.tempCorrection);
+            }
+          });
+        }
+      }
     } catch(e) {
       this.log.error("Error updating %s status:", accessory.displayName, e);
     }
@@ -754,6 +802,29 @@ class TesyHeaterPlatform {
         this.log.info("%s: ✓ Temperature set to %s°C", deviceInfo.name, value);
         callback(null);
       });
+    });
+  }
+
+  setTempCorrection(deviceInfo, value, callback) {
+    // Ensure integer and clamp to valid range (-4 to +4)
+    value = parseInt(value);
+    if (value < -4) value = -4;
+    if (value > 4) value = 4;
+
+    this.log.info("%s: Setting temperature correction to %s°C", deviceInfo.name, value);
+
+    // MQTT command: setTCorrection, payload field: "temp" (as string!)
+    // Discovered from Phase 1 research
+    this.sendMQTTCommand(deviceInfo, 'setTCorrection', {
+      temp: value.toString()  // Must be string: "3" not 3
+    }, (error) => {
+      if (error) {
+        this.log.error("%s: Error setting temperature correction:", deviceInfo.name, error);
+        return callback(error);
+      }
+
+      this.log.info("%s: ✓ Temperature correction set to %s°C", deviceInfo.name, value);
+      callback(null);
     });
   }
 
