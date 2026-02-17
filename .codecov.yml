@@ -1,0 +1,28 @@
+# Codecov configuration
+# Documentation: https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  status:
+    project:
+      default:
+        target: 80%                    # Minimum coverage target for entire project
+        threshold: 1%                  # Acceptable coverage drop (1% won't fail)
+        if_ci_failed: error            # Show error if CI failed
+
+    patch:
+      default:
+        target: 70%                    # Coverage target for new changes (diff)
+        threshold: 2%                  # Acceptable threshold for patch
+        if_ci_failed: error
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default                   # Comment on every PR
+  require_changes: false              # Comment even if coverage unchanged
+  require_base: no                    # Don't require base commit for comparison
+  require_head: yes                   # Require head commit
+
+ignore:
+  - "test/**/*"                       # Ignore test files
+  - "**/*.test.js"                    # Ignore unit test files
+  - "test-*.js"                       # Ignore test scripts
