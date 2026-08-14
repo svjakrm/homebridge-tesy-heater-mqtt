@@ -31,6 +31,12 @@ class TesyHeaterPlatform {
     this.lastDiscoveryAttempt = 0; // Timestamp of last discovery attempt
     this.DISCOVERY_RETRY_INTERVAL = 10000; // Minimum 10 seconds between discovery attempts
 
+    // Connectivity tracking (MQTT-based, since the cloud REST snapshot can be stale)
+    this.lastSeenAt = {}; // deviceId -> timestamp of last MQTT message seen
+    this.OFFLINE_THRESHOLD = 120000; // No MQTT activity for 2 minutes = unreachable
+    this.CONNECTIVITY_CHECK_INTERVAL = 30000;
+    this.connectivityInterval = null;
+
     // Configuration
     this.userid = this.config.userid;
     this.username = this.config.username;
@@ -233,11 +239,12 @@ class TesyHeaterPlatform {
       accessory: accessory,
       info: deviceInfo
     };
+    this.lastSeenAt[deviceInfo.id] = Date.now();
 
     // Subscribe to MQTT topic if MQTT is already connected
     if (this.mqttClient && this.mqttClient.connected) {
-      const responseTopic = `v1/${deviceInfo.mac}/response/${deviceInfo.model}/${deviceInfo.token}/#`;
-      this.mqttClient.subscribe(responseTopic, (err) => {
+      const deviceTopic = `v1/${deviceInfo.mac}/#`;
+      this.mqttClient.subscribe(deviceTopic, (err) => {
         if (err) {
           this.log.error("MQTT subscribe error for %s:", deviceInfo.name, err);
         } else {
@@ -380,11 +387,11 @@ class TesyHeaterPlatform {
         });
       }
 
-      // Subscribe to all device response topics
+      // Subscribe to all device topics
       Object.values(this.devices).forEach(device => {
         const info = device.info;
-        const responseTopic = `v1/${info.mac}/response/${info.model}/${info.token}/#`;
-        this.mqttClient.subscribe(responseTopic, (err) => {
+        const deviceTopic = `v1/${info.mac}/#`;
+        this.mqttClient.subscribe(deviceTopic, (err) => {
           if (err) {
             this.log.error("MQTT subscribe error for %s:", info.name, err);
           } else {
@@ -427,22 +434,30 @@ class TesyHeaterPlatform {
       try {
         // Parse topic: v1/{MAC}/response/{MODEL}/{TOKEN}/{COMMAND}
         const topicParts = topic.split('/');
+        const mac = topicParts[1];
+
+        // Any message carrying this device's MAC is a connectivity heartbeat,
+        // regardless of command shape (ping, pingRequest/pingResponse, response/*, ...).
+        // The cloud REST snapshot can report stale connectivity, so MQTT traffic is
+        // the source of truth for whether a device is actually reachable.
+        const device = Object.values(this.devices).find(d => d.info.mac === mac);
+        if (device) {
+          this._markDeviceReachable(device);
+        }
+
         if (topicParts.length < 6) return;
 
-        const mac = topicParts[1];
         const command = topicParts[5];
 
         // Only process setTempStatistic messages (periodic status updates from device)
         if (command !== 'setTempStatistic') return;
 
+        if (!device) return;
+
         const data = JSON.parse(message.toString());
         if (!data.payload) return;
 
         const payload = data.payload;
-
-        // Find device by MAC address
-        const device = Object.values(this.devices).find(d => d.info.mac === mac);
-        if (!device) return;
 
         // Update temperatures immediately from MQTT
         // Note: setTempStatistic messages don't include 'status' (on/off) field,
@@ -499,6 +514,75 @@ class TesyHeaterPlatform {
         this.log.debug("Error processing MQTT message:", error.message);
       }
     });
+  }
+
+  // Connectivity tracking
+  //
+  // The cloud REST snapshot (`get-my-devices`) can report a device as "off" or
+  // "waiting for connection" long after it has actually reconnected, so it can't be
+  // trusted as a reachability signal. Real devices send frequent MQTT traffic
+  // (ping/pingResponse, periodic setTempStatistic) while connected; silence on that
+  // channel for OFFLINE_THRESHOLD is what we treat as "unreachable".
+
+  _isDeviceUnreachable(deviceInfo) {
+    const device = this.devices[deviceInfo.id];
+    return !!(device && device.unreachable);
+  }
+
+  _markDeviceReachable(device) {
+    this.lastSeenAt[device.info.id] = Date.now();
+
+    if (!device.unreachable) return;
+
+    device.unreachable = false;
+    this.log.info("%s: MQTT activity resumed, marking as reachable", device.info.name);
+
+    this.fetchDeviceStatus(device.info, (error, status) => {
+      if (error) return;
+      this.updateAccessoryStatus(device.accessory, status);
+    });
+  }
+
+  _markDeviceUnreachable(device) {
+    if (device.unreachable) return;
+
+    device.unreachable = true;
+    this.log.warn("%s: No MQTT activity for over %ds, marking as unreachable",
+      device.info.name, this.OFFLINE_THRESHOLD / 1000);
+
+    const service = device.accessory.getService(Service.HeaterCooler);
+    if (!service) return;
+
+    const error = new Error('Device offline');
+    [
+      Characteristic.Active,
+      Characteristic.CurrentHeaterCoolerState,
+      Characteristic.CurrentTemperature,
+      Characteristic.HeatingThresholdTemperature
+    ].forEach(characteristic => {
+      service.getCharacteristic(characteristic).updateValue(error);
+    });
+  }
+
+  checkDeviceConnectivity() {
+    const now = Date.now();
+
+    Object.values(this.devices).forEach(device => {
+      const lastSeen = this.lastSeenAt[device.info.id] || 0;
+      if (now - lastSeen > this.OFFLINE_THRESHOLD) {
+        this._markDeviceUnreachable(device);
+      }
+    });
+  }
+
+  startConnectivityMonitor() {
+    if (this.connectivityInterval) {
+      return;
+    }
+
+    this.connectivityInterval = setInterval(() => {
+      this.checkDeviceConnectivity();
+    }, this.CONNECTIVITY_CHECK_INTERVAL);
   }
 
   sendMQTTCommand(deviceInfo, command, payload, callback) {
@@ -579,6 +663,8 @@ class TesyHeaterPlatform {
     this.pollingInterval = setInterval(() => {
       this.updateAllDevices();
     }, this.pullInterval);
+
+    this.startConnectivityMonitor();
 
     // Initial update
     this.updateAllDevices();
@@ -687,6 +773,10 @@ class TesyHeaterPlatform {
   // Characteristic Handlers
 
   getActive(deviceInfo, callback) {
+    if (this._isDeviceUnreachable(deviceInfo)) {
+      return callback(new Error('Device offline'));
+    }
+
     this.fetchDeviceStatus(deviceInfo, (error, status) => {
       if (error) {
         return callback(error);
@@ -715,6 +805,10 @@ class TesyHeaterPlatform {
   }
 
   getCurrentTemperature(deviceInfo, callback) {
+    if (this._isDeviceUnreachable(deviceInfo)) {
+      return callback(new Error('Device offline'));
+    }
+
     this.fetchDeviceStatus(deviceInfo, (error, status) => {
       if (error) {
         return callback(error);
@@ -726,6 +820,10 @@ class TesyHeaterPlatform {
   }
 
   getHeatingThresholdTemperature(deviceInfo, callback) {
+    if (this._isDeviceUnreachable(deviceInfo)) {
+      return callback(new Error('Device offline'));
+    }
+
     this.fetchDeviceStatus(deviceInfo, (error, status) => {
       if (error) {
         return callback(error);
@@ -766,6 +864,10 @@ class TesyHeaterPlatform {
   }
 
   getCurrentHeaterCoolerState(deviceInfo, callback) {
+    if (this._isDeviceUnreachable(deviceInfo)) {
+      return callback(new Error('Device offline'));
+    }
+
     this.fetchDeviceStatus(deviceInfo, (error, status) => {
       if (error) {
         return callback(error);

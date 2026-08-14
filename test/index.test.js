@@ -137,6 +137,10 @@ describe('TesyHeater Platform Plugin', () => {
       clearInterval(platformInstance.pollingInterval);
       platformInstance.pollingInterval = null;
     }
+    if (platformInstance && platformInstance.connectivityInterval) {
+      clearInterval(platformInstance.connectivityInterval);
+      platformInstance.connectivityInterval = null;
+    }
     if (platformInstance && platformInstance.mqttClient) {
       platformInstance.mqttClient = null;
     }
@@ -1051,6 +1055,158 @@ describe('TesyHeater Platform Plugin', () => {
     });
   });
 
+  describe('Connectivity Detection', () => {
+    let mockAccessory;
+    let mockService;
+    let mockActive;
+    let mockCurrentHeaterCoolerState;
+    let mockCurrentTemperature;
+    let mockHeatingThresholdTemperature;
+    let device;
+    const deviceInfo = {
+      id: '123456',
+      mac: '1C:9D:C2:36:9D:84',
+      token: 'testtoken',
+      model: 'cn05uv',
+      name: 'Test Heater'
+    };
+
+    beforeEach(() => {
+      mockActive = { value: 1, updateValue: jest.fn().mockReturnThis() };
+      mockCurrentHeaterCoolerState = { value: 2, updateValue: jest.fn().mockReturnThis() };
+      mockCurrentTemperature = { value: 20, updateValue: jest.fn().mockReturnThis() };
+      mockHeatingThresholdTemperature = { value: 20, updateValue: jest.fn().mockReturnThis() };
+
+      mockService = {
+        getCharacteristic: jest.fn((type) => {
+          if (type === Characteristic.Active) return mockActive;
+          if (type === Characteristic.CurrentHeaterCoolerState) return mockCurrentHeaterCoolerState;
+          if (type === Characteristic.CurrentTemperature) return mockCurrentTemperature;
+          if (type === Characteristic.HeatingThresholdTemperature) return mockHeatingThresholdTemperature;
+          return { updateValue: jest.fn() };
+        })
+      };
+
+      mockAccessory = new mockApi.platformAccessory('Test Heater', 'uuid-123456');
+      mockAccessory.getService = jest.fn(() => mockService);
+
+      device = { info: deviceInfo, accessory: mockAccessory };
+      platformInstance.devices[deviceInfo.id] = device;
+      platformInstance.lastSeenAt[deviceInfo.id] = Date.now();
+    });
+
+    test('_isDeviceUnreachable returns false for a freshly added device', () => {
+      expect(platformInstance._isDeviceUnreachable(deviceInfo)).toBe(false);
+    });
+
+    test('checkDeviceConnectivity marks a silent device unreachable after the threshold', () => {
+      platformInstance.lastSeenAt[deviceInfo.id] = Date.now() - (platformInstance.OFFLINE_THRESHOLD + 1000);
+
+      platformInstance.checkDeviceConnectivity();
+
+      expect(device.unreachable).toBe(true);
+      expect(mockActive.updateValue).toHaveBeenCalledWith(expect.any(Error));
+      expect(mockCurrentHeaterCoolerState.updateValue).toHaveBeenCalledWith(expect.any(Error));
+      expect(mockCurrentTemperature.updateValue).toHaveBeenCalledWith(expect.any(Error));
+      expect(mockHeatingThresholdTemperature.updateValue).toHaveBeenCalledWith(expect.any(Error));
+    });
+
+    test('checkDeviceConnectivity leaves a recently-seen device alone', () => {
+      platformInstance.checkDeviceConnectivity();
+
+      expect(device.unreachable).toBeUndefined();
+      expect(mockActive.updateValue).not.toHaveBeenCalled();
+    });
+
+    test('_markDeviceUnreachable is idempotent (does not spam updateValue on repeat calls)', () => {
+      platformInstance._markDeviceUnreachable(device);
+      platformInstance._markDeviceUnreachable(device);
+
+      expect(mockActive.updateValue).toHaveBeenCalledTimes(1);
+    });
+
+    test('_markDeviceReachable clears the unreachable flag and refreshes status', (done) => {
+      device.unreachable = true;
+      platformInstance.fetchDeviceStatus = jest.fn((_info, callback) => {
+        callback(null, { status: 'on', heating: 'off', temp: 21, current_temp: 20 });
+      });
+      const updateSpy = jest.spyOn(platformInstance, 'updateAccessoryStatus');
+
+      platformInstance._markDeviceReachable(device);
+
+      setImmediate(() => {
+        expect(device.unreachable).toBe(false);
+        expect(updateSpy).toHaveBeenCalledWith(mockAccessory, expect.objectContaining({ status: 'on' }));
+        done();
+      });
+    });
+
+    test('_markDeviceReachable always refreshes lastSeenAt, even when already reachable', () => {
+      const before = platformInstance.lastSeenAt[deviceInfo.id];
+
+      platformInstance._markDeviceReachable(device);
+
+      expect(platformInstance.lastSeenAt[deviceInfo.id]).toBeGreaterThanOrEqual(before);
+    });
+
+    test('getActive returns an error immediately for an unreachable device without hitting the API', () => {
+      device.unreachable = true;
+      const fetchSpy = jest.spyOn(platformInstance, 'fetchDeviceStatus');
+
+      platformInstance.getActive(deviceInfo, (error) => {
+        expect(error).toBeInstanceOf(Error);
+      });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    test('getCurrentTemperature returns an error immediately for an unreachable device', () => {
+      device.unreachable = true;
+
+      platformInstance.getCurrentTemperature(deviceInfo, (error) => {
+        expect(error).toBeInstanceOf(Error);
+      });
+    });
+
+    test('getHeatingThresholdTemperature returns an error immediately for an unreachable device', () => {
+      device.unreachable = true;
+
+      platformInstance.getHeatingThresholdTemperature(deviceInfo, (error) => {
+        expect(error).toBeInstanceOf(Error);
+      });
+    });
+
+    test('getCurrentHeaterCoolerState returns an error immediately for an unreachable device', () => {
+      device.unreachable = true;
+
+      platformInstance.getCurrentHeaterCoolerState(deviceInfo, (error) => {
+        expect(error).toBeInstanceOf(Error);
+      });
+    });
+
+    test('any MQTT message for a known MAC counts as a heartbeat, not just setTempStatistic', () => {
+      platformInstance.initMQTT();
+      const onCalls = mockMqttClient.on.mock.calls;
+      const messageHandler = onCalls.find(call => call[0] === 'message')[1];
+
+      platformInstance.lastSeenAt[deviceInfo.id] = 0;
+
+      // pingRequest has a different topic shape than v1/{MAC}/response/{MODEL}/{TOKEN}/{COMMAND}
+      messageHandler('v1/1C:9D:C2:36:9D:84/pingRequest/cn05uv/testtoken', Buffer.from('{}'));
+
+      expect(platformInstance.lastSeenAt[deviceInfo.id]).toBeGreaterThan(0);
+    });
+
+    test('startConnectivityMonitor does not create a second interval when already running', () => {
+      const mockInterval = {};
+      platformInstance.connectivityInterval = mockInterval;
+
+      platformInstance.startConnectivityMonitor();
+
+      expect(platformInstance.connectivityInterval).toBe(mockInterval);
+    });
+  });
+
   describe('Error Recovery', () => {
     test('should track consecutive errors', (done) => {
       const https = require('https');
@@ -1337,7 +1493,7 @@ describe('TesyHeater Platform Plugin', () => {
       platformInstance.addDevice(deviceInfo);
 
       expect(mockMqttClient.subscribe).toHaveBeenCalledWith(
-        'v1/1C:9D:C2:36:AA:08/response/cn05uv/testtoken/#',
+        'v1/1C:9D:C2:36:AA:08/#',
         expect.any(Function)
       );
     });
@@ -1375,6 +1531,10 @@ describe('TesyHeater Platform Plugin', () => {
       if (platformInstance.pollingInterval) {
         clearInterval(platformInstance.pollingInterval);
         platformInstance.pollingInterval = null;
+      }
+      if (platformInstance.connectivityInterval) {
+        clearInterval(platformInstance.connectivityInterval);
+        platformInstance.connectivityInterval = null;
       }
     });
 
